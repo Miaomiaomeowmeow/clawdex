@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title></title>
+<style>
+@font-face { font-family: "ChillRound"; src: url("fonts/ChillRoundM.ttf") format("truetype"); font-display: block; }
+:root {
+  --paper: #FBF8F2; --ink: #26231F; --sub: #6E6A63; --pencil: #9C968C; --faint: #C6C0B5;
+  --line: #E6DFD3; --accent: #D77757; --accent-soft: #F7E3DA; --bg: #ECE8E0;
+  --hand: "ChillRound", "KaiTi", "STKaiti", "Kaiti SC", serif;   /* 10-28 用户选寒蝉半圆体（OFL 开源，可随软件发布）；缺的字用楷体补 */
+  --rough: 12px 4px 14px 5px / 5px 14px 4px 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--hand); font-size: 15px; }
+.page { max-width: 440px; margin: 24px auto; padding: 22px 20px 22px; background: var(--paper); border-radius: 10px; }
+h1 { font-size: 22px; margin: 0 0 4px; display: flex; justify-content: space-between; align-items: baseline; }
+h1 small { font-size: 13px; color: var(--pencil); font-weight: normal; cursor: pointer; }
+.rule { height: 2px; width: 108px; background: var(--ink); border-radius: 2px 6px 3px 8px; margin-bottom: 8px; }
+
+.mate { position: relative; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.mate .top { display: flex; align-items: center; gap: 10px; }
+.grip { display: none; cursor: grab; color: var(--sub); width: 12px; margin-left: -16px; user-select: none; }
+.ordered .grip { display: inline-block; }   /* 自定顺序：左边冒出小点，能拖着排；按额度：收起来 */
+.mate.dragging { opacity: .35; }
+.mate.over { box-shadow: 0 -2px 0 var(--accent); }
+.face { width: 30px; height: 30px; border: 1.5px solid #B9B1A4; border-radius: 52% 48% 50% 50% / 48% 52% 48% 52%; background: #FFFDF8; display: grid; place-items: center; overflow: hidden; flex: none; }
+.face img { width: 24px; margin-top: 6px; }
+.name { font-weight: 700; font-size: 16px; flex: 1; }
+.mate.off .face { opacity: .45; }
+.mate.off .name { color: var(--pencil); }   /* 灰掉的行：名字变浅，但不整块半透明，后面的说明小字才看得清（10-28 用户：浅浅的字看不清） */
+.leave { opacity: 0; color: var(--pencil); cursor: pointer; font-size: 16px; padding: 0 4px; transition: opacity .15s; }
+.mate:hover .leave { opacity: 1; }
+.leave:hover { color: #C4472F; }
+.mate .job { margin: 8px 0 0 40px; }
+.mate .lvl { margin: 6px 0 0 40px; }
+.gone { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); color: var(--pencil); }
+.gone s { color: var(--faint); }
+.gone button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; }
+
+/* 下拉：能选，也能自定义；模型多，最上面能搜 */
+.pick { position: relative; }
+.pick > .btn { font: inherit; color: var(--ink); background: none; border: 0; padding: 3px 6px 4px; cursor: pointer; text-align: left; width: 100%;
+  border-bottom: 1.5px solid var(--ink); border-radius: 2px 10px 3px 12px / 2px 3px 6px 4px; display: flex; gap: 6px; align-items: baseline; }
+.pick.model > .btn { width: auto; max-width: 170px; font-size: 13.5px; color: var(--sub); border-bottom-color: var(--pencil); }
+.pick > .btn .v { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.5; padding-bottom: 1px; }   /* 留够上下空间：g、y 的尾巴不被切（10-28 用户：gpt 的 g 被切掉一截） */
+.pick > .btn .v.soft { color: var(--pencil); }
+.pick > .btn .arrow { color: var(--pencil); font-size: 12px; transition: transform .2s; }
+.pick.open > .btn .arrow { transform: rotate(180deg); }
+.pick.open { position: relative; z-index: 15; }
+.mate:has(.pick.open) { position: relative; z-index: 15; }   /* 展开的下拉压在下一行上面，不被下一行盖住 */
+.menu { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px); background: #FFFDF8; padding: 6px;
+  border: 1.5px solid var(--ink); border-radius: var(--rough); box-shadow: 3px 4px 0 rgba(38,35,31,.08);
+  max-height: 260px; overflow-y: auto; transform-origin: top; animation: drop .16s ease-out; }
+.pick.model .menu { left: auto; right: 0; width: 230px; }
+@keyframes drop { from { opacity: 0; transform: scaleY(.92); } }
+.search { font: inherit; font-size: 13.5px; width: 100%; border: 0; border-bottom: 1.5px solid var(--faint); background: none; outline: none; padding: 4px 6px 5px; margin-bottom: 4px; color: var(--ink); }
+.search:focus { border-bottom-color: var(--accent); }
+.opt { display: flex; align-items: baseline; gap: 6px; padding: 7px 8px; border-radius: 6px; cursor: pointer; line-height: 1.35; }
+.opt:hover, .opt.hl { background: #F3EEE5; }
+.opt .tick { width: 14px; color: var(--accent); flex: none; }
+.opt .t { flex: 1; }
+.opt .tag { font-size: 11.5px; color: var(--pencil); flex: none; }
+.opt .x { opacity: 0; color: var(--pencil); padding: 0 2px; }
+.opt:hover .x { opacity: 1; }
+.opt .x:hover { color: #C4472F; }
+.opt .ed { opacity: 0; color: var(--pencil); padding: 0 2px; line-height: 0; }
+.opt:hover .ed { opacity: 1; }
+.opt .ed:hover { color: var(--ink); }
+.opt .ed .ic, .opt .ed svg { width: 13px; height: 13px; }
+.opt .t input { font: inherit; width: 100%; border: 0; border-bottom: 1px solid var(--pencil); background: transparent; outline: none; }
+.opt.new { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } }
+.sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.act { color: var(--sub); }
+.act input { font: inherit; width: 100%; border: 0; border-bottom: 1.5px solid var(--accent); background: none; outline: none; padding: 1px 0; color: var(--ink); }
+.act.busy { color: var(--pencil); cursor: default; }
+.empty { padding: 6px 8px; color: var(--pencil); font-size: 13px; }
+
+/* 小问号：大众不一定懂的地方才放 */
+.q { position: relative; flex: none; width: 16px; height: 16px; border: 1px solid var(--pencil); border-radius: 50%; font-size: 11px; color: var(--pencil);
+  display: inline-grid; place-items: center; cursor: help; }
+.q .tip { display: none; position: absolute; right: -6px; bottom: calc(100% + 8px); width: 230px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; color: #5B554C;
+  background: #FFF8E6; border: 1.5px solid #CDBF9F; border-radius: var(--rough); text-align: left; z-index: 9; }
+.q:hover .tip, .q.show .tip { display: block; }
+
+.below { margin-top: 12px; display: flex; justify-content: space-between; align-items: baseline; }
+.add > .btn { border-bottom: 0; color: var(--pencil); width: auto; }
+.add .menu { right: auto; min-width: 200px; }
+.link { font-size: 13px; color: var(--pencil); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; font-family: inherit; padding: 0; }
+.foot { margin-top: 20px; text-align: right; }
+
+/* 弹窗：警告、说明都在页面正中，后面压暗（大家的警告框都这样） */
+.veil { position: fixed; inset: 0; background: rgba(38,35,31,.32); display: grid; place-items: center; z-index: 20; animation: fade .15s ease-out; }
+@keyframes fade { from { opacity: 0; } }
+.dialog { max-height: calc(100vh - 32px); overflow-y: auto; width: min(340px, calc(100vw - 32px)); background: var(--paper); padding: 18px 20px 14px; border: 1.5px solid var(--ink); border-radius: var(--rough);
+  box-shadow: 4px 5px 0 rgba(38,35,31,.12); animation: pop .18s ease-out; }
+@keyframes pop { from { transform: scale(.94); opacity: 0; } }
+.dialog h2 { font-size: 17px; margin: 0 0 8px; }
+.dialog p { margin: 0 0 6px; font-size: 14px; line-height: 1.6; color: #4A453E; }
+.dialog dl { margin: 0; font-size: 13.5px; line-height: 1.6; color: #4A453E; }
+.dialog dt { font-weight: 700; color: var(--ink); margin-top: 8px; }
+.dialog dd { margin: 0; }
+.dialog .acts { display: flex; justify-content: flex-end; gap: 16px; margin-top: 14px; }
+.dialog button { font: inherit; background: none; border: 0; cursor: pointer; color: var(--sub); padding: 2px 0; }
+.dialog button.main { color: var(--accent); font-weight: 700; }
+.ic { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
+.grip .ic { width: 9px; height: 14px; }
+.opt .tick .ic { width: 13px; height: 13px; }
+/* 翻面：整张单子转过去 */
+.card { transition: transform .2s ease-in; transform-origin: 50% 50%; }
+.card.turn { transform: perspective(900px) rotateY(90deg); }
+.say { font-size: 13px; color: var(--sub); margin: 2px 0 6px; min-height: 18px; }
+/* 交棒的号：一行 = 小头 · 名字 · 还剩多少 */
+.acct { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.acct .name { flex: 1; }
+.acct .q2 { width: 70px; height: 5px; border-radius: 3px; background: #E7E0D4; overflow: hidden; }
+.acct .q2 i { display: block; height: 100%; border-radius: 3px; }
+.acct .pc { min-width: 46px; white-space: nowrap; text-align: right; font-size: 12.5px; color: var(--sub); font-family: system-ui, sans-serif; }
+.acct.dragging { opacity: .35; }
+.acct.over { box-shadow: 0 -2px 0 var(--accent); }
+.acct.me .now { width: auto; color: var(--ink); font-weight: 600; font-family: var(--hand); font-size: 14px; }   /* 当前用的号：最上面一行，不进换号顺序 */
+.acct:hover .leave { opacity: 1; }
+.view #addAcct { display: none; }   /* 平时只看，编辑时才能加号 */
+#addAcct { margin-top: 10px; }
+/* 底下的工具栏：随机 / 按顺序 · 翻面 · 保存 */
+.tools { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1.5px dashed var(--line); }
+.seg { display: inline-flex; border: 1.5px solid var(--ink); border-radius: 12px 10px 13px 9px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13.5px; background: none; border: 0; padding: 4px 11px; cursor: pointer; color: var(--sub); }
+.seg button.on { background: var(--ink); color: #FFFDF8; }
+.tbtn { font: inherit; font-size: 13.5px; background: none; border: 1.5px solid var(--ink); border-radius: 11px 13px 9px 12px; padding: 4px 11px; cursor: pointer; color: var(--ink); }
+.tbtn.edit { margin-right: auto; }
+.tools .help { margin-left: auto; }
+.tbtn.save { background: var(--accent); border-color: var(--accent); color: #FFFDF8; }
+.tbtn.save.done { background: none; color: var(--accent); }
+/* 最上面：两个标签（翻面）+ 关闭 × */
+.head { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; }
+.tab { font: inherit; font-size: 17px; background: none; border: 0; padding: 2px 4px 4px; cursor: pointer; color: var(--pencil); border-bottom: 2px solid transparent; border-radius: 2px 6px 3px 8px; }
+.tab.on { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }
+.tab + .tab { margin-left: 14px; }
+.view #modeq { display: none; }   /* ? 只在编辑时、按额度 / 自定顺序旁边 */
+.close { margin-left: auto; font: inherit; background: none; border: 0; cursor: pointer; color: var(--pencil); padding: 2px; line-height: 0; }
+.close:hover { color: var(--ink); }
+.close .ic { width: 16px; height: 16px; }
+/* 平时只看：下拉、离队、加一个、拖动都收起来 */
+.view .pick > .btn { pointer-events: none; border-bottom-color: transparent; }
+.view .pick > .btn .arrow, .view .leave, .view .below, .view .grip, .view .seg { display: none; }
+.view .mate .job, .view .mate .lvl { margin-top: 2px; }
+.modeline { display: flex; align-items: center; gap: 6px; min-height: 26px; font-size: 13px; color: var(--sub); }
+.modetag { color: var(--sub); }
+.login-status { color: var(--sub); font-size: 13px; }
+.edit .modetag { display: none; }
+.num { width: 16px; font: 600 12px system-ui, sans-serif; color: var(--pencil); text-align: center; flex: none; }
+.tools .ghost { font: inherit; font-size: 13.5px; background: none; border: 0; cursor: pointer; color: var(--sub); padding: 4px 6px; }
+/* 小窗模式（真插件）：整页就是这张卡片 */
+body.float { background: var(--paper); }
+body.float { overflow-y: auto; overflow-x: hidden; margin: 0; }   /* 去掉默认白边，不然比窗口高一点就冒滚动条（10-28） */   /* 下拉打开超出窗口时能往下滚 */
+body.float .page { margin: 0; max-width: none; border-radius: 0; min-height: 100vh; box-sizing: border-box; }
+body.float .cap { display: none !important; }   /* 「换号」那一面放回来（10-28 用户：我看不到号） */
+body.float .head { -webkit-app-region: drag; }   /* 按住最上面一行拖 = 挪小窗 */
+body.float .head button { -webkit-app-region: no-drag; }
+.htabs { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 4px 0 10px; }
+.htabs button { font: inherit; font-size: 13.5px; background: none; border: 1.2px solid #D8D0C2; border-radius: 10px 8px 11px 9px; padding: 2px 9px; cursor: pointer; color: var(--sub); }
+.htabs button.on { border-color: var(--ink); color: var(--ink); background: var(--accent-soft); }
+.hbody { font-size: 14px; line-height: 1.7; max-height: 52vh; overflow-y: auto; }
+.hbody table { border-collapse: collapse; width: 100%; font-size: 13px; line-height: 1.45; }
+.hbody th, .hbody td { border-bottom: 1px solid var(--line); padding: 5px 4px; text-align: left; vertical-align: top; }
+.hbody th { color: var(--sub); font-weight: 600; }
+.hbody tr > th:first-child { white-space: nowrap; padding-right: 8px; }
+.cap { text-align: center; color: var(--pencil); font-size: 12px; margin-top: 10px; }
+/* Keep the established palette, drawings and type; allow the content to shrink. */
+html, body { max-width:100%; overflow-x:hidden; }
+.page { width:100%; min-width:0; }
+.name, .pick, .opt .t { min-width:0; overflow-wrap:anywhere; }
+.mate .top { flex-wrap:wrap; }
+.mate .name { flex:1 1 110px; }
+.mate .model { flex:0 1 auto; max-width:100%; }
+.pick.model > .btn { max-width:100%; }
+.mate .job > .btn .v { white-space:normal; overflow-wrap:anywhere; }
+.unavailable { color:var(--sub); font-size:12px; font-weight:normal; margin-left:6px; }
+.lvbtn { position: relative; flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink); background: #FFFFFF; display: grid; place-items: center; padding: 0 0 4px; cursor: pointer; color: var(--ink); }
+.lvbtn svg { width: 13px; height: 13px; }
+.lvbtn.zero { color: var(--pencil); border-color: var(--pencil); }
+.lvbtn .lv { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; }
+.lvbtn .lv i { width: 3px; height: 3px; border-radius: 50%; background: #CFC8BC; }
+.lvbtn .lv i.on { background: var(--ink); }
+.view .lvbtn { cursor: default; }
+.clone { font: inherit; font-size: 12.5px; color: var(--sub); background: none; border: 0; cursor: pointer; padding: 2px 0 0 37px; display: flex; align-items: center; gap: 3px; }
+.clone .ic { width: 12px; height: 12px; }
+.add { width:100%; }
+.add .menu { width:100%; min-width:0; max-height:300px; }
+.ai-option { align-items:center; cursor:default; }
+.ai-option .t { display:flex; flex-direction:column; gap:3px; }
+.ai-option .tag { white-space:normal; overflow-wrap:anywhere; font-size:12px; }
+.ai-option .tbtn { flex:none; white-space:nowrap; }
+.ai-option.tryable { cursor:pointer; }
+.tools { flex-wrap:wrap; }
+.acct .name { overflow-wrap:anywhere; }
+@media(max-width:380px) { .page { padding:18px 14px; } .mate .top { gap:7px; } .mate .model { margin-left:37px; } .mate .job, .mate .lvl { margin-left:37px; } .acct { gap:7px; } .acct .q2 { width:42px; flex:none; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <button class="tab" data-s="work"></button>
+    <button class="tab" data-s="relay"></button>
+    <button class="close" id="close" title=""></button>
+  </div>
+  <div class="card" id="card">
+    <div class="modeline"><span class="modetag" id="modetag"></span><span class="seg" id="seg"><button data-m="quota"></button><button data-m="order"></button></span><span class="q" id="modeq">?<span class="tip" id="modetip"></span></span></div>
+    <div id="front"><div id="team"></div>
+      <div class="below"><div class="pick add" id="add"></div></div></div>
+    <div id="back" hidden><div id="accts"></div><div class="pick add" id="addAcct"></div></div>
+  </div>
+<div class="tools" id="tools"></div>
+</div>
+<div class="cap"></div>
+
+<script>
+let EN = false;
+try { EN = localStorage.getItem("clawdex.lang") === "en" } catch (e) {}
+const L = (zh, en) => EN ? en : zh;
+// 只翻译显示文字；保存值和插件内部标记保持原样。
+const JOB_TEXT = [["全部","All"],["照定好的方案写代码、改 bug、跑终端命令","Implement plans, fix bugs, run commands"],["查资料、读很长的文件","Research and read long files"],["写中文文案、读长文","Write Chinese copy and read long text"],["照方案写代码、改 bug；顺手生图","Implement plans, fix bugs, generate images"],["查资料、读长文件、看截图找问题","Research, read long files, review screenshots"],["写小红书文案、改中文稿子","Write Xiaohongshu posts and edit Chinese copy"],["改格式、整理清单这类小杂活","Format text and organize lists"],["中英互译、中文润色","Translate Chinese and English, polish Chinese"],["照方案改代码","Implement the agreed code changes"],["修难的 bug","Fix difficult bugs"],["查资料、读长文件","Research and read long files"],["什么小活都行","Any small task"],["写中文文案","Write Chinese copy"],["写代码草稿","Draft code"],["翻译","Translate"],["照定好的方案写代码、改 bug、写脚本、批量改文件、查资料","Code from an agreed plan, fix bugs, write scripts, batch-edit files, research"],["照方案写代码、改 bug","Implement plans and fix bugs"],["读长文、整理文字","Read long text and organize writing"]];
+const jobText = (t, src) => { if (isJudge(t)) return JUDGE(); if (src === "我") return t; const job = Object.values(KNOWN).map(k => k.jobPair).find(j => j && (j.zh === t || j.en === t)); if (job) return L(job.zh, job.en); const pair = JOB_TEXT.find(p => p.includes(t)); return pair ? L(...pair) : t; };
+
+let refreshDialog = null;
+const FACE = { 小克: "data:image/png;base64,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", codex: "data:image/png;base64,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", gemini: "data:image/png;base64,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", 紫: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAAA+CAYAAACIll2bAAAJaElEQVR42uVbXUwc1xX+zszswoIaBmtY6lhJl9aAjS0WuzJIpWKhKusEK/FPaO3IDw5uFCzZFUFxZCLh+qeR7Dy0dqVEwVJa4oe2qLXbbCMnqbEbQEWo0FBAibGN3cW10tB4C4tSIGFn7u0DvsOwLLBgwLAc6UrssJqZ++05556f7wAxKLLm0KR45axsV9qJSCciXbYr7ZJDqcBKF1lzaFZgwpccp/hkzaFFfb+YQmedPV7qMxpYyMgGgCe/UyFtza2g3KxnCKTj3/dugBs8A4zHc519sOIAkoalp/lXxiEAOPjMb6TvbjxIiXFfJzXRRbnr9xKjIbp1928cBs9FouJDiP1nxnvGEkBk8H0AsCVrO234xnYaGgma/xsaCcKT/WNypqQQAEgMhVGBHhPIJCpuOU7xsVFjGwBoqosimgs5oKqrxj5wpMU+QMcgSfHKWRo2PhLgAEAg2MsBwOAjE75u8BHc7LnBx9QN/pgGSNYcmnxa+aPwOd7iYtqzezcBQNs1H//kjo8/krB6TMEcKhIdKt5tOcpNc0y0/XrFHOWnT51iuq4zXddZqtNpiOsl+S+yQ6W/Zc899bqRmbHOvB7b8dAxSHKc4hObraurM8E5feoUmyr+McGJV87GdCAoxStnI4HzSlWVYQVBcigVQstku9Iuxyk+KcG2K7bD5ETFLUB4parKEOCcq6lhU2rIOns8nlgbF/s5xDFIQiPy8vJ0Ac717m62YsxnWtNKsO0SQLS0tJim9eyePYZpRrPIsaIOPpfCiUQSUvShkF3i9C3ZLicaX+lj0RzRXQBgxG/LIdSykJHtLS6mS++9RwBwq6cH67OyGACQQ/khGw79YdmbieJ0rJccSkV4OSLa9cH7709yzLJdaV+w9GWxnKtkoIwYCkSmPZU4U1JIpAPBYD8A4PN79zgAZKRn0ifXPjbfeUPWRn6z5waXbHIXl3GeSWjAkN65bACSHEoFGdgXCZTc3FxsysmhTZs2UbbbjWRVhZqcDE2b6EYCgQAAwO/3I1lVsTY93by+evVqNumZdvkSl+n8kjY3yaFUhJtGqtNpHCgvN+rq6lhfX59pJg+yrnd3s3M1NWyr12tMKozZlfYlF/dEAmar1zuvoEy1+vr62LmaGmZNKUQFEYmKe0mUG6wv9uyePYb1OF7MVVdXNwmoh6ZN4Vqz1et9aMCEr/DcbFEDSVlzaFatSXU6jXM1NUsCGOtqaWmZoE1ynOLDsWPSopYbtnq9xvXu7iUHjtU/WR25HKf4FtbfWMA5UF5uLFVgwpcVpIUxN0s2TUT6UjSpWYEUheOeVaAo25V2EfTVvPmm9KPnn1922U4gEICnoJCL2jRPkL89XfQdnbPKz1diARwA0DQNb5+vNRVD1nHygRuH0r3Pfs5HjacAoOrIEXrp8GHCMpY1a9YgNDqKvzY3gxs8Q0qwfcxDrHtuJpaouGnY+Eh0DkSpIRbEmuwaW/Jy0dysz06D1tnj5f/ydznjqc6UFPrz5cuUkJAQM0W41FQnXbx4kXPGU6XAZ12RtGhaHyTdYeXC75w8eZLCM+3lLqWlpchIzyQAIJ1Xz8oHyZpD41+E6kVp4vU33iDEoIwMD9HVq1c5Zzw1EqFhSg3iQ6G94u8Tx49LiFF5rqxsHIwIhIbIG/dAIQP7hPZ8v7g4ZpsBmqbBW1w8Zmb39zwzQH9XNgjfU1lZGbPaI6SoqIgAgIWM7PDOSMTNSwbKRH24tLQ01vGBp3DcsviwXjA9QPn5CjEUAMDOnTuxEiQtLQ2CWAXOH5sWIKWnPV2YV+F91Yt10TRtSmLVJIDYFyGv+DvH7cZKEZfr8bHUYiaABIIZ6ZkkWiwrQVatMjVoehMTCApE5yK3enpw6OBBvq2khP/yrbcWbFNX6uuxraSE5+fns4V6jhJBgx6bgOhc6i0eDxfd0Mv19RzAvJdH2tra8GRJidk4bG1tZUmqKj3wqUu4G1UknZSUNKf7+955x2wVC/lVbS2b71/2Tz4fj/BsPtf79ff3PzwSp5qUNO+nYVKEe871RwWA4ODgWIUxjP067wBt37HDzJCFVFZW0kLkULm5uebnjPRMOn7ixJyf0+v3UyR6sDKFDWb7/X7MNaZobGqgt2traXBwkD+9fTtt2bJlQWKX5uZm6cKFC2bp4kEOFdMt3OckTQmQULH7KkdzffnDL7+8KPSa+UiFOjrHa/aM+O3pTUyipvungkk9iXURzl2yyV3hHY4Ix/x4LuIpKOQu1+PYvHkzPB4PxUrZo62tDY0NDejs7OT9/f0iFBlzL1lZdly7Njo5IHI61oczNMJXXl6evpRbzNG0oA+UlxvT7TGcV0ThnYuM9EwqK9tHnsJCJKsqBoJBNDY0oLb2PL/Zc4M7U1KosbFx2aUh1oahMyWFdu7ciR07dlCSqmIwGERHR4e5xwmkUFlzaFZOTzQEgMyMdcZybTnPZAVWDVOcjvUmtd9Kzp5uCSqJdQxgqa+6ujomKDrRMN0EmHKc4pPEOFG0pdVdu3Y8cFj/sE6p/fv3I5rWlQhs2aixTZpt7cflGpvm+6ffv2wAam/vAAC4c3Ioyj1OjoMGgsHoQvLesWm+1tZWbMjayI9WV/NbPT1L8ig/Wl3N1zz6qOl4B6Pf43hiIVgb5S+8QDM1BwOBANzZ2Tw8WwfGec+FRUWU43ZjsU+5Wz096OjsRGdHB//Lhx/y1tbWSd/xFHjkK1evzKj520pK+OX6ei7Z5UskJdh28RH9d8D0tJZAIIA9u3frjU1NkmSTu/CIzcuHQnuJ4XvWeVFYGPOutDT+zbQ0crlccLlclKSqUJOSkKSqSFbVsUw/OXlCimIlj5uZ9sCAqeWDwSDu3LmDgYEB9Pb2cr/fj97ef43PokYilRO/LcKYqiNH6KevvjqlIhytruanX3vN5A6RGFKzzn6W7d9PwieJOOjMmTOm5oSTjmTNofFhvQCMF0QzbhAJzEjXI2nqdCLZ5C4uoQkSNVGC0mQERgJWNi7/0vhZ+B7V5GQEBwbQ0dmJM2fOMKF5FC+/xEb0X1CkG0z5Anb5kqHgJzPNQ4gJHvY/fT04fwwcaWYx3FLznS2Qkk3uEikBJ/hB8IPoLiN+W3bYPrUCMhVleaY9WsGZnG0nKm6JodA6XyHZ5C4Q7s7r/MMPIK/9x1rFH/z0a0ZgJCAAjfRV/fORbtHtNIpGBvB7GFiAwRqhfexL/UXr1/8PNGVjBIxyrBwAAAAASUVORK5CYII=", 蓝: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAAA+CAYAAACIll2bAAAJYklEQVR42uVbf0wb1x3/vLuzHYM2H9HZKMmqmC2YJFSYpA1IQ8UwDWcj6hIi1lBVU0JWlUztlqEmCtXIkmaVkv6xkUmrSqZu0D8meW2ylU1pu5CsgMaQYCWAlhEBmUFRFJZ42KgNrPjuvf0B77gYA4YAMeYrPck+nd/d+/j7/b7vj88DElBExaoIFum8aJY6CSEqIUQVzVKnYJWOYq2LqFgVIzCRQ7RIDaJiVWKeL6HQ2WpeJwxrTTSsZQFA5jM/JFsLq8XNWfsFs0TIyN0bjGnMBY2tYxr9OJYpSSLhIySZ9rNx9T0AeOZ774sp6fsxMRaCOUkGAAw2/4T1XDtHAYAliU/hgdo975yJBBDR2EEAcD75LOPgAMDEWAgTYyFs3HWcOOx2AgACRUFMoCcEMsmSW7RIDXRC2wMA8sanpNluNdnSKQCAIi3xAToFQbBI58mY9ikHBwA+D/yLzfaTOwN/J1Mr9yc0QKJiVcRz0h/ZhPYKAHiLikjZgQMEAAY636PBW5d132NOkmFOkjFw5Qc6cCTZ9Ls1s5WfO3uWqqpKVVWlqQ6Hxq8/mf8jreDg7+nXn/u19pX0vDC/ntjx0CkIokVq4Iv1+Xw6OOfOnqWzxT86OBbpfEIHgoJFOh8NnNeqqjQjCIJVOsq1TDRLnaJFahCSTPsTO0xOltwchNeqqjQOzoXaWjqrhmw1r8O3tlgSP4c4BYFrRG5ursrBudnbS9eM+cwXJXMg2tradNN6vqxM081oATlWzMFnPOxIRIBdfRA2C4x8TTSLydoX6vrJtyO3AYASdksMo46GtSxvURG5/OGHk9t5fz+2bd9OAYBYpefoWPgPq95MJId1m2CVjkaWI2IdH3/00QzHLJqlzmVLX1bKuQoqyglDPs+0ZxOH3U7klBQAQCgYBADcu3+fAYDL5SI3btzQ3zkzM5P19fUxwST2MBHvUgFNsSSgcQOQYJWOEg0Ho4GSk5ODHdnZZMeOHSTL7UaKLENOSYGiPOxGAoEAAMDv9yNFlrElPV2/vmHDBjrjmWbxMhPJu3FtboJVOhppGqkOh3akokLz+Xx0eHhYN5NHGTd7e+mF2lq62+vVZhTGzFJn3MU90YDZ7fUuKSizjeHhYXqhtpZmZGRokRVEJEvuuCg3GF/s+bIyzbgdr+Tw+XwzgHps2hSpNbu93scGTOSIzM1WNJAUFati1JpUh0O7UFsbF8AYR1tb20PaJFqkBpw6JaxouWG316vd7O2NO3CM/snoyEWL1LC8/sYAzpGKCi1egYkcRpCWx9wM2TQhRI1Hk1oQSDE47gUFiqJZ6uRBX+3bbwvff/HFVZftBAIBeDwe1tfXx4D52z+xOau8PCkRwAEARVFQX1+vK4ao4swjd1aFe3d/wcLaswBQdeIEefXYsVXdcNy0aRPCExP4W2srmMZcQpLpnyxMexdnYsmSm4xpn/LOAS81JIIYk11tV24OWlvVhWnQVvM68b/sz4yyVIfdTv5y5QpJSkpKmCJcamoquXTpEmOUpQqBuz3RtGhOHyQM0Qrud86cOUMiM+3VLqWlpXC5XAQAiMqqF+SDRMWqsM/Cjbw08au33kooogOX8bExcu3aNcYoS0Wy1IAw/U9MGsQehF/gn18/fVpAgsqh8vJpMKIQGqIv/Gm7iWg4yLXnm0VFCdsMUBQF3qKiSTObWvP8APUGt3PfU1lZmbDaw6WwsJAAAA1rWZGdkaiLF1SU8/pwaWlpouMDT8G0ZbExNX9ugPLyJMKQDwAlJSVYC5KWlgZOrAJjT8wJkNTfmc7Nq2BK9RJdFEUB76REEqtmAEQ/C3v552y3G2tFnJs389RiboA4gi6Xi/AWy1qQ9evXTzkhzG1iHEGO6GJkoL8fr7z8MttTXMx+8847y7aoq42N2FNczPLy8uhyPWcm2XEKQR3RRdZbeDf0SmMjA7Dk5ZGOjg58u7hYbxy2t7dTmywLj7zrEtyOKZK22WyLmr/hgw/0VjGX39bV0aX+Z//U0MCiPJstdr6RkZHHR+KUbbYl3w1tUeZc7J8KAKHR0ckKIx5mvy45QHv37dMzZC6VlZVkOXKonJwc/bvL5SKnX3990c8Z9Puj0oOlWWwwy+/3Y7ExRXNzM6mvqyOjo6PsO3v3kl27di1L7NLa2ipcvHhRL108yqaiu4UpTtKsAHEVm1I5stiXP3b8+IrQa5YiFerqnq7ZU8JuzW1iImmZ2hV06kmiC3fugknsiexwRNnmp3MRj8fDnJs3Y+fOnfB4PCRRyh4dHR1obmpCd3c3GxkZ4aHIpHt52m7CP+6HZwZEDuu2SIZG5MjNzVXjucUcSwv6SEWFNtcaI3lFJLJz4XK5SPmhQ8RTUIAUWUYwFEJzUxPq6utZX18fc9jtpLm5edWlIcaGocNuJyUlJdi3bx+xyTJGQyF0dXXpa3yIFCoqVsXI6YmFAJCRkaGt1pbzfFZg1DDJYd2mU/uN5Oy5BqeSGI8BxPvw+XyUU3RiYbpxMEWL1CDw40Sxllb3TxXRHiWsf1y71OHDhxFL64oHtnRC2yMstPbjdDoJAPzb7181AHVevw4AcGdnkxjXODMOCoZCsYXkg4OMx0mZmZnsZHU1G+jvj8ut/GR1Ndu0caPueEdjX+N0YsFZGxUvvUTmaw4GAgG4s7JYZLYOTPOeCwoLSbbbjZXe5Qb6+9HV3Y3uri72108+Ye3t7TPu8eR7xKvXrs6r+XuKi9mVxkYmmMXLxHiUei5aSyAQQNmBA2pzS4sgmMQefNnkZQ/CLxCKbxjPi8LAmHempbGvpqURp9MJp9NJbLIM2WaDTZaRIk8el9RrwVMpipE8rmfaU4z7YCiE0VAIQ0NDCAaDGBwcZH6/H4NDQ+BaEpVUTtgtHsZUnThBfvbGG7MqwsnqanbuzTd17hDhh9SMZz/LDx8m3CfxOKimpkbXnEjSkahYFTam5kNj+bEcN4gGZrTr0TR1LhFMYg8jaIFIWkiS1KIFxgNGNi77n/bzyDXKKSkIBYPo6u5GTU0N5ZpH1omv0nH1lyTaBLO+gFm8rEn46XznIfgJHvq5ug2MPQGKNL0Ybqj5LhRIwST28JSAAX4I8IOQ25SwW6LVdMcIyGyU5fnWaARnZradLLkFigLj+QrBJPaA4PaSnn/4LsQt17dI/tCdL2mB8QAHNNqt6r3xXt7t1ArHg3gfGpbhYA3XPvqF+mPj7f8H3W5dBkMpYgQAAAAASUVORK5CYII=", 绿: "data:image/png;base64,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" };
+const ALL = "全部";
+const JUDGE = () => L("AI 每次自己判断", "AI decides each time");   // 10-28 用户：不要「全部」，换成让主 AI 每件活自己判断
+const isJudge = t => t === ALL || t === "AI 每次自己判断" || t === "AI decides each time";
+const SVG = d => `<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const IC = {
+  pen:   SVG('<path d="M3.2 12.9 L3.9 10.1 L10.8 3.1 Q11.6 2.4 12.4 3.2 L12.9 3.7 Q13.6 4.5 12.9 5.2 L6 12.2 Z"/><path d="M9.9 4.1 L11.9 6.1"/><path d="M3.4 12.7 L5.9 12.1" opacity=".6"/>'),
+  spark: SVG('<path d="M8.1 2.2 C8.5 5.4 10.3 7.4 13.7 8.1 C10.4 8.6 8.6 10.5 8 13.8 C7.5 10.6 5.6 8.7 2.3 8 C5.5 7.5 7.6 5.5 8.1 2.2 Z"/><path d="M12.6 2.6 L12.7 4.3 M11.8 3.5 L13.5 3.4" stroke-width="1.1"/>'),
+  plus:  SVG('<path d="M8.1 3.1 C7.9 6.2 8 9.6 8.2 12.9"/><path d="M3.1 8.2 C6.2 7.9 9.8 8 12.9 7.8"/>'),
+  tick:  SVG('<path d="M3.2 8.6 C4.4 9.6 5.5 10.8 6.4 12.1 C8.3 8.6 10.4 5.9 12.9 3.6"/>'),
+  x:     SVG('<path d="M4.1 4.2 C6.6 6.5 9.4 9.4 11.9 11.8"/><path d="M11.8 4.1 C9.5 6.6 6.6 9.4 4.2 11.9"/>'),
+  down:  SVG('<path d="M4 6.2 C5.4 7.6 6.7 8.9 8 10.1 C9.4 8.7 10.7 7.4 12.1 5.9"/>'),
+  grip:  `<svg class="ic" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3.5" r="1.2"/><circle cx="7.2" cy="3.3" r="1.2"/><circle cx="2.9" cy="8" r="1.2"/><circle cx="7.1" cy="8.1" r="1.2"/><circle cx="3.1" cy="12.6" r="1.2"/><circle cx="7" cy="12.4" r="1.2"/></svg>`,
+};
+
+// 推荐：每个 AI 只给一行，按大家的实测评价（work-advisor/谁来做.md）；查不到的就写「全部」
+// 模型列表：正式版登录后从各家接口自动读（见 派活/各家模型列表.md）；读不到时用下面这份（2026-10-26 查官方文档）
+const MODELS = {
+  Codex: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+  Gemini: ["gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash"],
+  DeepSeek: ["deepseek-flash", "deepseek-v4-pro"],
+  Kimi: ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
+  通义千问: ["qwen3.8-max", "qwen3.8-flash", "qwen3.7-plus", "qwen3.7-flash", "qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "qwen3.5-plus", "qwen3.5-flash", "qwen3-coder-flash", "qwen-plus", "qwen-max", "qwen-flash"],
+  Claude: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+};
+MODELS.Antigravity = MODELS.Gemini;
+MODELS.Qwen = MODELS.通义千问;
+let KNOWN = {};
+const aiLabel = n => KNOWN[n]?.display ? L(KNOWN[n].display.zh, KNOWN[n].display.en) : n;
+const normalizeModel = t => !t || ["default", "默认", "Default"].includes(t) ? "default" : t;
+const modelText = (t, n) => normalizeModel(t) !== "default" ? t : KNOWN[n]?.defaultModel ? L("默认（" + KNOWN[n].defaultModel + "）", "Default (" + KNOWN[n].defaultModel + ")") : L("默认", "Default");   // 默认后面写出它自己设的模型（10-28 用户：模型名没同步）
+const defaultModel = () => "default";
+const modelsOf = (n, model = "default") => [...new Set(["default", ...(MODELS[n] || []), normalizeModel(model)])];
+const AI_HOW = () => L("这是内置推荐句，直接加入列表供你选择，不调用 AI。", "This built-in recommendation is added to your choices immediately. It does not call AI.");
+
+function make(name) {
+  const k = KNOWN[name] || { face: "蓝", left: null, models: modelsOf(name), model: defaultModel(), job: ALL };
+  const jobs = [{ t: k.job, src: "推荐" }, { t: JUDGE(), src: "判断" }];
+  const used = new Set(team.map(m => m.id)); let n = 1; while (used.has(name+"#"+n)) n++;
+  return { id:name+"#"+n, name, face: k.face, left: k.left, models: k.models.map(t => ({ t, mine: false })), model: k.model, jobs, job: 0, off: false, installed: k.installed, login: k.login, addedBy:"manual" };
+}
+
+let team = [];
+// 委派名单按号列（10-28 用户：所有号都列出来，正在用的那个变灰）。小窗里由真数据改写这两个
+const HAND = '<svg viewBox="-9 -9 18 18"><path d="M-4.5 7 Q-6.2 1.5 -5.6 -1 L-5.6 -5 Q-4.6 -6.6 -3.6 -5 L-3.6 -1 L-3.4 -7 Q-2.4 -8.6 -1.4 -7 L-1.4 -1 L-1.1 -7.6 Q0 -9.2 1.1 -7.6 L1.1 -1 L1.4 -6.6 Q2.4 -8.2 3.4 -6.6 L3.4 0 Q5.1 -2.1 6.2 -1 Q6.7 0 5.1 2.1 Q3.1 5.8 2 7Z" fill="currentColor"/></svg>';   // 跟浮窗「手」按钮同一个图（派活强度）
+const LVS = ["关", "低", "中", "高"], LV_EN = { 关: "Off", 低: "Low", 中: "Mid", 高: "High" }, LV_SAY = { 关: ["暂不派活", "paused"], 低: ["偶尔交一点", "a few small tasks"], 中: ["常常交", "small tasks often"], 高: ["能交的都交", "every small task it can"] };
+const lvOf = m => m.off ? "关" : (m.level && m.level !== "关" ? m.level : "中");
+let acctInfo = m => null;   // → { label: 号名, grey: 原因 } 
+let acctExtra = () => [];   // → [{ name, ai, why }] 名单里还没有的号，灰着显示
+// 两面：正面 = 委派（把小活交给别的 AI），背面 = 换号；两面各有 按额度 / 自定顺序
+const KEY = "clawdex.settings";
+const ACCTS = [];
+let accts = ACCTS.slice();
+let side = "work", mode = { work: "quota", relay: "quota" }, editing = false, draft = null;
+const TIP = {   // 「按额度 / 自定顺序」旁边的 ?：两个标签下意思不一样
+  work: () => L("一件活好几个 AI 都能接时：按额度 = 交给额度剩得最多的；自定顺序 = 排前面的先接，按住左边小点拖着排。", "When several AIs can do a task: By quota picks the one with the most quota left. Custom order picks the first eligible AI; drag the dots to reorder."),
+  relay: () => L("额度用完时，头顶会冒出换号弧让你挑。按额度 = 剩得最多的排前面；自定顺序 = 按你排的顺序，按住左边小点拖着排。", "When quota runs out, the switch arc appears so you can choose. By quota puts the most remaining quota first. Custom order uses your order; drag the dots to reorder."),
+};
+let dragFrom = null, openPick = null;
+const failureText = f => {
+  if (!f) return "";
+  if (typeof f === "string") return f.split(/\r?\n/)[0];
+  return ({login:L("还没登录，请点「去登录」", "Not signed in. Click Sign in."),disabled:L("服务已停用，请换 Antigravity 或填 Key", "Service discontinued. Use Antigravity or configure a Key."),timeout:L("试用超时，请再试一次", "Test timed out. Try again."),missing:L("还没装，请点「装」", "Not installed. Click Install.")})[f.category] || L("没成功："+(f.raw?.split(/\r?\n/)[0] || "无回复")+" · 可以再试一次或看帮助", "Test failed: "+(f.raw?.split(/\r?\n/)[0] || "No reply")+" · Try again or see Help");
+};
+const capabilityText = k => { const c=k.capabilities; return c ? [aiLabel(k.name), c.delegate?L("能接委派","Delegation supported"):L("暂不接委派","Delegation unavailable"),c.readOnly?L("支持只读派活","Read-only delegation supported"):L("能接改文件的活；只读的活暂不派","Can take file-editing tasks; read-only tasks are not assigned yet"),L(c.key.zh,c.key.en),c.readOnlyNote?L(c.readOnlyNote.zh,c.readOnlyNote.en):""].filter(Boolean).join(" · ") : ""; };
+const availability = a => {
+  const k = KNOWN[a.name] || a;
+  return k.testing || tryPending.has(a.name) ? L("正在试…", "Trying…") : k.installMissing ? L("没找到刚装的 "+aiLabel(a.name), "Could not find the newly installed "+aiLabel(a.name)) : a.installed === false ? L("没装", "Not installed") : k.blocked ? L(k.notice.zh, k.notice.en) : (k.trialStale ? L("上次试过 · 可能要重新试", "Previously tested · May need to test again")+(k.failure ? " · "+failureText(k.failure) : "") : failureText(k.failure)) || (a.login === "yes" ? "" : a.login === "no" ? L("还没登录", "Not signed in") : L("登录待确认", "Sign-in not confirmed"));
+};
+const usable = k => !!k?.installed && k.login === "yes" && !k.blocked && (k.name === "Codex" || k.name === "Claude" || k.lastTrial?.login === "yes");
+const safeStatus = a => availability(a).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $team = document.getElementById("team");
+const $ = id => document.getElementById(id);
+
+function load() {   // 读存过的设置（跑道那边拖小圆圈改的顺序也存在这里）
+  let d; try { d = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { d = null; }
+  if (!d) return;
+  if (d.mode) { mode = d.mode; for (const k of ["work", "relay"]) if (mode[k] !== "order") mode[k] = "quota"; }
+  if (d.work) team.sort((a, b) => d.work.indexOf(a.name) - d.work.indexOf(b.name));
+  if (d.relay) accts.sort((a, b) => d.relay.indexOf(a.name) - d.relay.indexOf(b.name));
+}
+function save() {
+  let d; try { d = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { d = {}; }
+  d.mode = mode; d.work = team.filter(m => !m.gone).map(m => m.name); d.relay = accts.map(a => a.name);
+  try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {}
+}
+// 编辑：进去先记下原样，「取消」就放回去；「保存」存好、收起编辑的东西
+function startEdit() { draft = JSON.stringify({ team, accts, mode }, (k, v) => k === "timer" ? undefined : v); editing = true; render(); }
+function stopEdit(keep) {
+  team.forEach(m => { clearInterval(m.timer); delete m.timer; });
+  if (!keep && draft) { const d = JSON.parse(draft); team = d.team; accts = d.accts; mode = d.mode; }
+  if (keep) { team = team.filter(m => !m.gone); save(); }
+  editing = false; draft = null; if (openPick) openPick(); render();
+}
+function paintTools() {
+  const t = $("tools");
+  t.innerHTML = editing
+    ? `<button class="ghost" id="cancel">${L("取消", "Cancel")}</button><span style="margin-left:auto"></span><button class="tbtn save" id="save">${L("保存", "Save")}</button>`
+    : `<button class="tbtn edit" id="edit">${IC.pen} ${L("编辑", "Edit")}</button><button class="link help" id="help">${L("帮助", "Help")}</button>`;
+  if (editing) { $("cancel").onclick = e => { e.stopPropagation(); stopEdit(false); }; $("save").onclick = e => { e.stopPropagation(); stopEdit(true); }; }
+  else { $("edit").onclick = e => { e.stopPropagation(); startEdit(); }; $("help").onclick = showHelp; }
+}
+function paintHead() {
+  document.documentElement.lang = EN ? "en" : "zh";
+  document.title = L("克代同堂设置", "Clawdex settings");
+  document.querySelectorAll(".tab").forEach(b => { b.textContent = b.dataset.s === "work" ? L("委派", "Delegate") : L("换号", "Switch account"); });
+  document.querySelectorAll("#seg button").forEach(b => { b.textContent = b.dataset.m === "order" ? L("自定顺序", "Custom order") : L("按额度", "By quota"); });
+  $("close").title = L("关闭", "Close");
+  document.querySelector(".cap").textContent = L("设置页小样 · 点「委派」「换号」翻面，点左下「编辑」改", "Settings preview · Switch tabs for delegation or accounts. Click Edit to make changes.");
+  if (refreshDialog) refreshDialog();
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.s === side));
+  document.querySelectorAll("#seg button").forEach(b => b.classList.toggle("on", b.dataset.m === mode[side]));
+  $("modetag").textContent = mode[side] === "order" ? L("自定顺序", "Custom order") : L("按额度", "By quota");
+  $("modetip").textContent = TIP[side]();
+  const pg = document.querySelector(".page");
+  pg.classList.toggle("ordered", mode[side] === "order"); pg.classList.toggle("view", !editing); pg.classList.toggle("edit", editing);
+  $("front").hidden = side !== "work"; $("back").hidden = side !== "relay";
+  paintTools();
+}
+
+// 背面：交棒的号
+
+const loginPending = new Set();
+const tryPending = new Set();
+function requestTry(name) { keepAddOpen = true; if (tryPending.has(name) || KNOWN[name]?.testing) return; tryPending.add(name); window.clawdex.send({type:"try",ai:name}); render(); }
+function loginControls(row, m) {
+  row.onclick = e => e.stopPropagation();
+  const k = KNOWN[m.name] || m;
+  const host = row.querySelector('.t');
+  const note = host.querySelector('.tag');
+  const busy = k.testing || tryPending.has(m.name);
+  note.textContent = busy ? L("正在试…", "Trying…") : k.notice ? L(k.notice.zh,k.notice.en) : availability(k) || L("点这一项试用后加入", "Click to try and add");
+  if (busy || k.blocked || k.notice && ['Gemini','Qwen'].includes(m.name)) return;
+  const button = (label, action) => { const btn=document.createElement('button');btn.className='tbtn';btn.textContent=label;btn.onclick=e=>{e.stopPropagation();action();};row.append(btn); };
+  if (!k.installed || k.missingOfficialPlugin) {
+    button(L("装", "Install"), () => dialog(() => '<p>'+ (k.missingOfficialPlugin ? L("Codex 还差一个官方插件，装好后在 Claude 里重开一次对话才生效。", "Codex requires the official plugin. Start a new Claude conversation after installation.") : L("要从官方地址安装 "+aiLabel(m.name)+" 吗？", "Install "+aiLabel(m.name)+" from its official source?") + ((k.needsNode || k.needsNpm) ? L("还要先装 Node（含 npm）。", "Node (including npm) must be installed first.") : ""))+'</p>', [[()=>L("取消","Cancel"),null],[()=>L("确认","Confirm"),()=>window.clawdex.send({type:k.missingOfficialPlugin?'install-official':'install',ai:m.name}),true]]));
+  } else if (k.login === 'no' || k.failure?.category === 'login' || loginPending.has(m.name)) {
+    button(loginPending.has(m.name)?L("登好了","Done"):L("去登录","Sign in"),()=>{
+      if(loginPending.has(m.name)){loginPending.delete(m.name);requestTry(m.name);}
+      else {loginPending.add(m.name);window.clawdex.send({type:'login',ai:m.name});render();}
+    });
+  } else {
+    row.classList.add('tryable');row.tabIndex=0;row.setAttribute('role','button');
+    row.onclick=e=>{e.stopPropagation();requestTry(m.name);};
+    row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();requestTry(m.name);}};
+  }
+}
+
+const relayAccts = () => mode.relay === "order" ? accts : accts.slice().sort((a, b) => (b.left ?? -1) - (a.left ?? -1));
+function renderAccts() {
+  const box = $("accts"); box.innerHTML = "";
+  relayAccts().forEach((a, i) => {
+    const r = document.createElement("div");
+    r.className = "acct";
+    r.innerHTML = `<span class="grip" title="${L("拖动排序", "Drag to reorder")}">${IC.grip}</span>${mode.relay === "order" && !editing ? `<span class="num">${i + 1}</span>` : ""}<div class="face"><img alt="" src="${FACE[a.face]}"></div><div class="name">${a.name === "Claude 号 2" ? L("Claude 号 2", "Claude account 2") : a.name === "另一个 Claude 号" ? "Claude 2" : aiLabel(a.name)}</div>` +
+      (a.left == null ? `<span class="q2" style="background:repeating-linear-gradient(90deg,#CFC8BC 0 3px,transparent 3px 6px)"></span><span class="pc">${L("查不到", "Unavailable")}</span>` : `<span class="q2"><i style="width:${a.left * 100}%;background:${a.fill}"></i></span><span class="pc">${L(`剩 ${Math.round(a.left * 100)}%`, `${Math.round(a.left * 100)}% left`)}</span>`);
+    r.querySelector(".grip").onmousedown = () => { if (editing && mode.relay === "order") r.draggable = true; };
+    r.ondragstart = e => { dragFrom = a; r.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; };
+    r.ondragover = e => { e.preventDefault(); r.classList.add("over"); };
+    r.ondragleave = () => r.classList.remove("over");
+    r.ondrop = e => { e.preventDefault(); const from = accts.indexOf(dragFrom), to = accts.indexOf(a); if (from < 0 || to < 0 || from === to) return; const [x] = accts.splice(from, 1); accts.splice(to, 0, x); dragFrom = null; renderAccts(); };
+    r.ondragend = () => { dragFrom = null; renderAccts(); };
+    box.append(r);
+  });
+}
+
+let keepAddOpen = false;
+function render() {
+  const reopenAdd = keepAddOpen && $("add").classList.contains("open");
+  if (openPick) openPick();
+  paintHead();
+  $team.innerHTML = "";
+  team.forEach((m, i) => {
+    if (m.gone) {
+      const g = document.createElement("div");
+      g.className = "gone";
+      g.innerHTML = `<span><s>${m.name}</s> ${L("离队了", "removed")}</span><button>${L("撤销", "Undo")} ${m.gone}</button>`;
+      g.querySelector("button").onclick = () => { clearInterval(m.timer); m.gone = 0; render(); };
+      $team.append(g);
+      return;
+    }
+    const row = document.createElement("div");
+    const info = acctInfo(m);
+    row.className = "mate" + (m.off || info?.grey ? " off" : "");
+    row.innerHTML = `<div class="top"><span class="grip" title="${L("拖动排序", "Drag to reorder")}">${IC.grip}</span>${mode.work === "order" && !editing ? `<span class="num">${i + 1}</span>` : ""}<div class="face"><img alt="" src="${FACE[m.face]}"></div><div class="name">${info?.label || aiLabel(m.name)}${(() => { const n = team.filter(x => x.name === m.name && !x.gone).indexOf(m) + 1; return n > 1 ? L(" · 分身 ", " · clone ") + n : ""; })()}</div><div class="pick model"></div><span class="leave" title="${L("离队", "Remove")}">${IC.x}</span></div><div class="job pick"></div><div class="lvl pick"></div><button class="clone below">${IC.plus} ${L("分身", "Clone")}</button>`;
+    if (info?.grey) { const g = document.createElement("span"); g.className = "unavailable"; g.textContent = info.grey; row.querySelector(".name").append(g); }
+    row.querySelector(".clone").onclick = e => { e.stopPropagation(); team.splice(i + 1, 0, make(m.name)); render(); };   // 同一个号再加一个分身：换模型、写负责
+
+    if (!info?.grey && !usable(KNOWN[m.name])) { const badge=document.createElement('span');badge.className='unavailable';badge.textContent=L("暂时用不了","Unavailable now");badge.title=availability(m);row.querySelector('.name').append(badge); }
+    picker(row.querySelector(".pick.model"), {   // 模型：能选、能搜，搜不到就用你打的
+      search: L("搜索，或输入模型名", "Search or enter a model name"),
+      items: () => m.models.map(x => ({ t: modelText(x.t, m.name), tag: x.t === (KNOWN[m.name] || {}).model ? L("推荐", "Recommended") : "", del: x.mine })),
+      cur: () => m.models.findIndex(x => x.t === m.model),
+      label: () => modelText(m.model, m.name), soft: () => m.model === (KNOWN[m.name] || {}).model,
+      set: j => { m.model = m.models[j].t; },
+      del: j => { const t = m.models[j].t; m.models.splice(j, 1); if (m.model === t) m.model = (KNOWN[m.name] || {}).model; },
+      create: t => { if (!m.models.some(x => x.t === t)) m.models.unshift({ t, mine: true }); m.model = t; },
+    });
+
+    picker(row.querySelector(".lvl"), {          // 派活强度：跟浮窗的「手」同一件事，设置页里写成完整的下拉（10-28 用户：设置里不能只放一个手的图标）
+      prefix: L("派活", "Delegate"),
+      items: () => LVS.map(v => ({ t: L(v + " · " + LV_SAY[v][0], LV_EN[v] + " · " + LV_SAY[v][1]), tag: "" })),
+      cur: () => LVS.indexOf(lvOf(m)),
+      label: () => L(lvOf(m) + " · " + LV_SAY[lvOf(m)][0], LV_EN[lvOf(m)] + " · " + LV_SAY[lvOf(m)][1]), soft: () => lvOf(m) === "中",
+      set: j => { m.level = LVS[j]; m.off = m.level === "关"; render(); },
+    });
+
+    picker(row.querySelector(".job"), {          // 负责：推荐 / 全部 / 自定义 / AI 判断 都在这一个下拉里
+      prefix: L("负责", "Role"),
+      items: () => [...m.jobs.map(j => ({ t: jobText(j.t, j.src), tag: j.src === "推荐" ? L("推荐", "Recommended") : j.src === "AI" ? IC.spark : "", del: j.src !== "判断" && m.jobs.length > 2, edit: j.src !== "判断" })),
+                    { t: L("暂不派活", "Paused"), tag: "", end: true }],
+      cur: () => m.off ? m.jobs.length : m.job,
+      label: () => m.off ? L("暂不派活", "Paused") : jobText(m.jobs[m.job].t, m.jobs[m.job].src), soft: () => m.off || m.jobs[m.job].src === "推荐",
+      set: j => { if (j === m.jobs.length) { m.off = true; m.level = "关"; } else { m.off = false; m.job = j; if (m.level === "关") m.level = "中"; } render(); clash(m); },
+      del: j => { m.jobs.splice(j, 1); if (m.job >= j) m.job = Math.max(0, m.job - 1); },
+      edit: (j, t) => { m.jobs[j] = { t, src: "我" }; m.job = j; m.off = false; render(); clash(m); },   // 改过的推荐就算你自己写的
+      write: t => { m.jobs.push({ t, src: "我" }); m.job = m.jobs.length - 1; m.off = false; render(); clash(m); },
+      ai: () => (KNOWN[m.name] || {}).job || ALL, aiAdd: t => { const at=m.jobs.findIndex(j => j.t === t); if(at>=0)return at; m.jobs.push({ t, src: "推荐" }); return m.jobs.length - 1; },
+    });
+
+    row.querySelector(".leave").onclick = () => {   // 不弹窗：原地变「撤销 5」，数完才真走
+      m.gone = 5; render();
+      m.timer = setInterval(() => { m.gone--; if (m.gone <= 0) { clearInterval(m.timer); const at = team.indexOf(m); if (at >= 0) team.splice(at, 1); } render(); }, 1000);
+    };
+    row.querySelector(".grip").onmousedown = () => { if (editing && mode.work === "order") row.draggable = true; };
+    row.ondragstart = e => { dragFrom = m; row.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; };
+    row.ondragover = e => { e.preventDefault(); row.classList.add("over"); };
+    row.ondragleave = () => row.classList.remove("over");
+    row.ondrop = e => { e.preventDefault(); const from = team.indexOf(dragFrom), to = team.indexOf(m); if (from < 0 || to < 0 || from === to) return; const [x] = team.splice(from, 1); team.splice(to, 0, x); dragFrom = null; render(); };
+    row.ondragend = () => { dragFrom = null; render(); };
+    $team.append(row);
+  });
+  for (const a of acctExtra()) {
+    const g = document.createElement("div");
+    g.className = "mate off";
+    g.innerHTML = `<div class="top"><div class="face"><img alt="" src="${FACE[a.face]}"></div><div class="name">${a.name}<span class="unavailable">${a.why}</span></div></div>`;
+    $team.append(g);
+  }
+  addPicker();
+  renderAccts();
+  if(reopenAdd && editing && side === "work") $("add").querySelector(".btn")?.click();
+}
+
+function picker(el, o) {
+  const draw = () => {
+    el.innerHTML = `<button class="btn">${o.prefix ? `<span style="color:var(--pencil)">${o.prefix}</span>` : ""}<span class="v ${o.soft() ? "soft" : ""}">${o.label()}</span><span class="arrow">${IC.down}</span></button>`;
+    el.querySelector(".btn").onclick = e => { e.stopPropagation(); el.classList.contains("open") ? close() : open(); };
+  };
+  const close = () => { el.classList.remove("open"); el.querySelector(".menu")?.remove(); if (openPick === close) openPick = null; };
+  const open = hl => {
+    if (openPick) openPick();
+    el.classList.add("open");
+    keepAddOpen = true;
+    const menu = document.createElement("div");
+    menu.className = "menu";
+    menu.onclick = e => e.stopPropagation();
+    const all = o.items();
+    const mk = (it, j) => {
+      const d = document.createElement("div");
+      d.className = "opt" + (j === hl ? " hl new" : "");
+      d.innerHTML = `<span class="tick">${j === o.cur() ? IC.tick : ""}</span><span class="t">${it.t}</span><span class="tag">${it.tag}</span>${it.edit && o.edit ? `<span class="ed" title="${L("改", "Edit")}">${IC.pen}</span>` : ""}${it.del ? `<span class="x" title="${L("删掉", "Delete")}">${IC.x}</span>` : ""}`;
+      d.onclick = e => {
+        if (e.target.classList.contains("x")) { o.del(j); close(); draw(); open(); return; }
+        if (e.target.closest(".ed")) {   // 点笔：这一句变成输入框，回车保存
+          const t = d.querySelector(".t"), old = o.items()[j].t.replace(/<[^>]*>/g, "");
+          if (t.querySelector("input")) return;
+          t.innerHTML = '<input>'; const inp = t.querySelector("input"); inp.value = old; inp.focus(); inp.select();
+          inp.onclick = ev => ev.stopPropagation();
+          inp.onkeydown = ev => { if (ev.key === "Enter" && inp.value.trim()) { close(); o.edit(j, inp.value.trim()); } if (ev.key === "Escape") close(); };
+          return;
+        }
+        close(); o.set(j); draw();
+      };
+      return d;
+    };
+    const list = document.createElement("div");
+    const fill = (q = "") => {
+      list.innerHTML = "";
+      const hits = all.map((it, j) => [it, j]).filter(([it]) => !it.end && it.t.toLowerCase().includes(q.toLowerCase()));
+      hits.forEach(([it, j]) => list.append(mk(it, j)));
+      if (o.create && q && !hits.length) {   // 搜不到：直接用你打的
+        const c = document.createElement("div");
+        c.className = "opt act";
+        c.innerHTML = `<span class="tick">${IC.plus}</span><span class="t">${L("用「", "Use “")}${q}${L("」", "”")}</span>`;
+        c.onclick = () => { close(); o.create(q); draw(); };
+        list.append(c);
+      } else if (!hits.length) list.innerHTML = `<div class="empty">${L("没有找到", "No results")}</div>`;
+    };
+    if (o.search) {
+      const s = document.createElement("input");
+      s.className = "search"; s.placeholder = o.search;
+      s.oninput = () => fill(s.value.trim());
+      s.onkeydown = ev => {
+        if (ev.key === "Enter") { const v = s.value.trim(); if (!v) return; const j = all.findIndex(it => it.t === v); close(); j >= 0 ? o.set(j) : o.create(v); draw(); }
+        if (ev.key === "Escape") close();
+      };
+      menu.append(s);
+      setTimeout(() => s.focus(), 0);
+    }
+    menu.append(list);
+    fill();
+    if (o.write) {
+      menu.insertAdjacentHTML("beforeend", '<div class="sep"></div>');
+      const w = document.createElement("div");
+      w.className = "opt act";
+      w.innerHTML = `<span class="tick">${IC.pen}</span><span class="t">${L("自定义…", "Custom…")}</span>`;
+      w.onclick = () => {
+        if (w.querySelector("input")) return;
+        w.querySelector(".t").innerHTML = `<input placeholder="${L("回车保存", "Enter to save")}">`;
+        const inp = w.querySelector("input");
+        inp.focus();
+        inp.onkeydown = ev => {
+          if (ev.key === "Enter" && inp.value.trim()) { close(); o.write(inp.value.trim()); }
+          if (ev.key === "Escape") close();
+        };
+      };
+      const a = document.createElement("div");
+      a.className = "opt act";
+      a.innerHTML = `<span class="tick">${IC.spark}</span><span class="t">${L("推荐", "Recommend")}</span><span class="q">?<span class="tip">${AI_HOW()}</span></span>`;
+      a.onclick = e => {
+        if (e.target.closest(".q")) { e.target.closest(".q").classList.toggle("show"); return; }
+        const j = o.aiAdd(o.ai()); close(); draw(); open(j);
+      };
+      menu.append(w, a);
+    }
+    const ends = all.map((it, j) => [it, j]).filter(([it]) => it.end);
+    if (ends.length) { menu.insertAdjacentHTML("beforeend", '<div class="sep"></div>'); ends.forEach(([it, j]) => menu.append(mk(it, j))); }
+    el.append(menu);
+    openPick = close;
+  };
+  draw();
+}
+
+// 两个人负责一样：页面正中弹一个提示框
+function clash(m) {
+  if (m.off) return;
+  const t = m.jobs[m.job].t;
+  if (isJudge(t)) return;
+  const other = team.find(x => x !== m && !x.gone && !x.off && x.jobs[x.job].t === t);
+  if (!other) return;
+  dialog(() => `<h2>${L("负责重复", "Overlapping roles")}</h2><p>${L(`<b>${m.name}</b> 和 <b>${other.name}</b> 负责的一样：「${jobText(t)}」。`, `<b>${m.name}</b> and <b>${other.name}</b> have the same role: “${jobText(t)}”.`)}</p><p>${L("遇到这类活，照「委派」里选的方式挑一个（按额度 / 自定顺序）。", "These tasks go to one AI, using your Delegate setting (By quota / Custom order).")}</p>`,
+    [[() => L("修改", "Edit"), () => { const r = document.querySelectorAll(".mate")[team.indexOf(m)]; r && r.querySelector(".job .btn").click(); }], [() => L("知道了", "Got it"), null, true]]);
+}
+
+function dialog(html, buttons) {
+  if (openPick) openPick();
+  const v = document.createElement("div");
+  v.className = "veil";
+  const shut = () => { if (refreshDialog === repaint) refreshDialog = null; v.remove(); document.removeEventListener("keydown", esc); };
+  const esc = e => { if (e.key === "Escape") shut(); };
+  const repaint = () => {
+    v.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">${html()}<div class="acts"></div></div>`;
+    const acts = v.querySelector(".acts");
+  buttons.forEach(([label, fn, main]) => {
+    const b = document.createElement("button");
+    b.textContent = label(); if (main) b.className = "main";
+    b.onclick = e => { e.stopPropagation(); shut(); fn && fn(); };
+    acts.append(b);
+  });
+    acts.querySelector(".main")?.focus();
+  };
+  refreshDialog = repaint; repaint();
+  v.onclick = e => { if (e.target === v) shut(); };
+  document.addEventListener("keydown", esc);
+  document.body.append(v);
+  v.querySelector(".main")?.focus();
+}
+
+// ＋ 加一个：列出电脑上认出来的、还没在队里的 AI
+function addPicker() {
+  const el = document.getElementById("add");
+  const left = Object.keys(KNOWN).filter(n => !team.some(m => m.name === n && !m.gone));
+  el.style.display = left.length ? "" : "none";
+  el.innerHTML = `<button class="btn">${IC.plus} ${L("加一个", "Add AI")}</button>`;
+  el.querySelector(".btn").onclick = e => {
+    e.stopPropagation();
+    if (el.classList.contains("open")) { openPick && openPick(); return; }
+    if (openPick) openPick();
+    el.classList.add("open");
+    const menu = document.createElement("div");
+    menu.className = "menu";
+    menu.onclick = e => e.stopPropagation();
+    left.forEach(n => {
+      const d = document.createElement("div");
+      d.className = "opt ai-option";
+      d.innerHTML = `<span class="t"><strong>${aiLabel(n)}</strong><span class="tag"></span></span>`;
+      loginControls(d,{...KNOWN[n],name:n});
+      menu.append(d);
+    });
+    el.append(menu);
+    openPick = () => { el.classList.remove("open"); menu.remove(); openPick = null; };
+  };
+}
+
+// 说明都收在这一个地方，不放在主界面
+const HELP = () => [   // 帮助分成五块，上面一排小标签点了换（10-28 用户：帮助里要分开）
+  [L("怎么操作", "How to use"), L("碰一下小克 = 看队友<br>点一下小克 = 开跑道（这个号的额度）。额度分「这 5 小时」和「这周」两条，跑道自动显示快用完的那条；点一下条，换成另一条<br>按住小克直接拖 = 挪位置<br><b>按住小克不动</b> = 换号：等头顶冒出能接手的，拖到谁身上就交给谁，也可以直接点一个<br>右键小克 = 菜单：语言、管理队友（就是这里）、退出<br>找不到小克：双击桌面上的「克代同堂」，或在 Claude 里打 /clawdex", "Hover Clawd = see teammates<br>Click Clawd = open the track (this account’s quota). Quota has two limits, “this 5 hours” and “this week”; the track shows whichever is closer to running out. Click the bar to see the other<br>Press and drag Clawd = move it<br><b>Press and hold Clawd still</b> = switch account: wait until whoever can take over appears above it; drop Clawd on one, or click one<br>Right-click Clawd = menu: Language, Teammates (this page), Quit<br>Can’t find Clawd? Double-click “Clawdex” on the desktop, or type /clawdex in Claude")],
+  [L("队友身上的按钮", "Teammate buttons"), L("碰一下小克，队友从小克身后探出来，头顶有三个圆按钮：<br><b>手</b> = 派多少活给它：连点换「关 / 低 / 中 / 高」<br><b>芯片</b> = 它用哪个模型，点开选<br><b>小图标</b> = 它负责什么（图标按负责的内容自动挑），点开能改负责、换分身、加分身<br>脚下一排小圆圈 = 你的队友，圈有多满 = 它还剩多少额度（查不到画虚线）；滚轮或点圆圈换人，拖圆圈换顺序；最后一个是「管理队友」", "Hover Clawd and a teammate peeks out from behind, with three round buttons above:<br><b>Hand</b> = how much work it gets: click to cycle Off / Low / Mid / High<br><b>Chip</b> = which model it uses; click to pick<br><b>Icon</b> = what it handles (picked from its role); click to edit the role, switch or add a clone<br>The row of circles = your teammates; how full a circle is = quota left (dashed = unknown). Scroll or click to switch, drag to reorder; the last one opens Teammates")],
+  [L("每样功能", "Features"), L("<b>委派</b>（目前支持 Claude 和 Codex 互相派）：照着做就行的小活，主 AI 先把大方向想好、写一张交接单，交给别的 AI 做，做完检查过才告诉你。好几个 AI 都能接时：按额度 = 交给剩得最多的；自定顺序 = 排前面的先接。<br><b>额度</b>：小克的样子就是这个号还剩多少——火箭、滑板、跑、拖着脚、趴下，越往后越累。点跑道换看这 5 小时或这周。<br><b>换号</b>：按住小克不放，交给 Codex = 打开 Codex 新对话、第一句已写好，你按发送；它先说做到哪，你点头它再接着做；交给 Gemini = 打开一个新窗口，Antigravity 带着交接记录开始，也是先说做到哪；交给你的另一个号（比如 Claude 2）= 现在还不能自动换，要你自己在那个 AI 里退出、登录另一个号。换号后小克问「接过来旧号的对话？」→ 点「挑一挑」→ 照左侧栏（Claude 左边的对话列表）样子的清单里勾要搬的（默认勾做到一半的）→ 点「接过来」→ 在 Claude 里按发送 → 只搬勾的；原来有分支的对话，进去说一句「开分支」，分支就挂回它下面。原来的对话没删，换回来就看得到。<br><br><b>例 1：交给 Codex</b>：你在 Claude 里做「设置页加中英切换」做到一半，额度快用完了 → 按住小克，拖到头顶的 Codex 身上 → 倒数 3 秒（可点「撤销」）→ Codex 打开一个新对话，名字也叫「设置页加中英切换」，第一句已经写好 → 你按发送 → Codex 回「做到第 3 步，下一步是……」，你回「好」，它就接着做。<br><b>例 2：换到 Claude 2</b>：Claude 1 本周额度用完 → 按住小克拖到 Claude 2，小克提醒你自己换 → 换号后小克问「接过来旧号的对话？」→ 点「挑一挑」→ 照左侧栏样子的清单里勾要搬的（默认勾做到一半的）→ 点「接过来」→ 在 Claude 里按发送 → 只搬勾的；原来有分支的对话，进去说一句「开分支」，分支就挂回它下面。<br>换号时小克脚下会标出「当前」是哪个号。<br>交过去时，对话的名字和它在左侧栏的位置（哪个分组、哪个文件夹）也一起带过去，接手的 AI 照样摆好；它摆不了会先问你。<br><b>编辑</b>：这页平时只能看，点左下「编辑」才能改，「保存」存好，「取消」当没改。", "<b>Delegate</b>: (currently between Claude and Codex, either way) for small, clear tasks the main AI sets the direction, writes a handoff and gives it to another AI, then checks the result before telling you. When several can take it: By quota = the one with the most left; Custom order = the first in your order.<br><b>Quota</b>: Clawd’s pose shows what this account has left — rocket, skateboard, running, dragging its feet, lying down. Click the track to switch between the 5-hour and weekly view.<br><b>Switch account</b>: press and hold Clawd. To Codex: a new Codex chat opens with the first message ready. Press Send; it explains progress and waits for your approval before continuing. To Gemini: a new window opens and Antigravity starts from the handoff note, also explaining progress first. To another account of yours (e.g. Claude 2): Clawdex can’t switch for you yet — sign out in that AI and sign in to the other account. After switching, Clawd asks “Bring over chats from the old account?” → click Choose chats → check the chats in a list arranged like your sidebar (the chat list on the left of Claude) (in-progress chats are checked by default) → click Bring over → press Send in Claude → only checked chats move; for a chat that had branches, open it and say “open branches” to put them back under it. Your original chats stay.<br><br><b>Example 1: hand off to Codex</b>: you are halfway through “Add a language switch to Settings” in Claude and running low on quota → press and hold Clawd and drop it on Codex → wait 3 seconds (Undo is available) → Codex opens a new chat with the same name and the first message written → press Send → Codex replies “Step 3 is done; next is …”, you reply “OK” and it continues.<br><b>Example 2: switch to Claude 2</b>: Claude 1 is out of weekly quota → drop Clawd on Claude 2; Clawd reminds you to switch yourself → After switching, Clawd asks “Bring over chats from the old account?” → click Choose chats → check the chats in a list arranged like your sidebar (in-progress chats are checked by default) → click Bring over → press Send in Claude → only checked chats move; for a chat that had branches, open it and say “open branches” to put them back under it.<br>While switching, the tag under Clawd shows which account is current.<br>The chat’s name and its place in your sidebar (group or folder) go along too, and the new AI files it the same way; if it can’t, it asks you first.<br><b>Edit</b>: this page is read-only until you click Edit; Save keeps changes, Cancel drops them.")],
+  [L("每家 AI 能做什么", "What each AI can do"), L("<table><tr><th></th><th>Claude</th><th>Codex</th><th>Gemini</th><th>别家 AI</th></tr><tr><th>认出来</th><td>现在登录的号：自动</td><td>装了命令行就能认出来；没登录时点「去登录」</td><td>装 Google 自己的 Antigravity，用你 Gemini 会员的 Google 账号登录就能认出来。额度还是你 Gemini 会员那份，用起来一样（Gemini 命令行已不让个人号用）</td><td>__AI_NAMES__：认得出，还没测过</td></tr><tr><th>第二个号</th><td>新号第一次出现会自动加入</td><td>认不出来，手动加</td><td>认不出来，手动加</td><td>认不出来，手动加</td></tr><tr><th>看额度</th><td>能（5 小时 + 本周）</td><td>能（读它自己的记录）</td><td>查不到</td><td>查不到</td></tr><tr><th>接委派的小活</th><td>Claude 当主 AI 时由它往外交；Codex 当主 AI 时它能接：在 Codex 里装 cc 插件（让 Codex 能把活交给 Claude）。接活的是电脑上命令行版 Claude 登录的号，不是 Claude 桌面应用登录的号</td><td>__CODEX_CAP__</td><td>__GEMINI_CAP__</td><td>__CAPABILITIES__</td></tr><tr><th>换过去</th><td>换号后小克问「接过来旧号的对话？」→ 点「挑一挑」→ 照左侧栏样子的清单里勾要搬的（默认勾做到一半的）→ 点「接过来」→ 在 Claude 里按发送 → 只搬勾的；原来有分支的对话，进去说一句「开分支」，分支就挂回它下面。</td><td>打开新对话、第一句已写好，你按发送；它先说做到哪，你点头它再接着做</td><td>打开一个新窗口，Antigravity 带着交接记录开始；它先说做到哪，你点头它再接着做</td><td>还不能</td></tr><tr><th>左侧栏照搬</th><td>能：改名、分组；文件夹自动</td><td>改名、分组能；文件夹要你在 Codex 里加一次</td><td>不能</td><td>请它自己摆，摆不了会问你</td></tr></table>只管有会员额度的 AI；自己填 Key、按用量付钱的不在这里。Claude 换好号会自己认出来；别家 AI 的第二个号：右键 → 管理队友 → 换号，加一下。", "<table><tr><th></th><th>Claude</th><th>Codex</th><th>Gemini</th><th>Other AIs</th></tr><tr><th>Detected</th><td>Current account: auto</td><td>CLI installed: detected automatically; click Sign in if needed</td><td>Install Google’s own Antigravity and sign in with the Google account that has your Gemini plan. It uses the same Gemini plan quota (the Gemini CLI no longer works for personal accounts)</td><td>__AI_NAMES__: detected, not tested yet</td></tr><tr><th>Second account</th><td>Added automatically when first seen</td><td>Not detected — add it</td><td>Not detected — add it</td><td>Not detected — add it</td></tr><tr><th>Quota</th><td>Yes (5-hour + week)</td><td>Yes (from its own logs)</td><td>Unknown</td><td>Unknown</td></tr><tr><th>Takes delegated tasks</th><td>When Claude is the main AI, it hands tasks out; when Codex is the main AI, Claude can take tasks: install the cc plugin in Codex (it lets Codex hand tasks to Claude). The work runs on the account the Claude command-line tool is signed in to, not the one in the Claude desktop app</td><td>__CODEX_CAP__</td><td>__GEMINI_CAP__</td><td>__CAPABILITIES__</td></tr><tr><th>Switch to it</th><td>After switching, Clawd asks “Bring over chats from the old account?” → click Choose chats → check the chats in a list arranged like your sidebar (in-progress chats are checked by default) → click Bring over → press Send in Claude → only checked chats move; for a chat that had branches, open it and say “open branches” to put them back under it.</td><td>A new chat opens with the first message ready; press Send. It explains progress and waits for your approval</td><td>A new window opens and Antigravity starts from the handoff note. It explains progress and waits for your approval</td><td>Not yet</td></tr><tr><th>Same sidebar</th><td>Yes: name, group; folders automatic</td><td>Name and group: yes; add the folder in Codex once yourself</td><td>No</td><td>It’s asked to; if it can’t, it asks you</td></tr></table>Only AIs with a membership quota; pay-as-you-go API keys are not covered. Claude accounts are detected after you switch; for other AIs: Right-click → Teammates → Switch, add it.")],
+  [L("第一次装好要做什么", "First-time setup"), L("装好插件后，开一个 Claude 对话，浮窗会自己出来，第一次会教你怎么用；桌面上也会有「克代同堂」图标。<br>桌面应用登录了不算，委派用的是各家的命令行，要在命令行里登录一次；在「＋ 加一个」里安装、登录，点已装好的 AI 试用，成功后才入队。<br>各家接委派、只读和 Key 要求见下面清单。<br>__ALL_CAPABILITIES__<br>想让别家 AI 也能接活：没装点「装」，确认后在新终端下载安装；没登录点「去登录」，完成后点「登好了」，或点下拉里这一项试用（会用少量额度，60 秒内确认能不能用；Antigravity 首次扫描会自动试一次），之后都在浮窗里点、拖，不用再敲命令。Codex 接委派还需要装官方插件 openai/codex-plugin-cc。<br>Claude 换好号会自己认出来；别家 AI 的第二个号：右键 → 管理队友 → 换号，加一下。", "After installing the plugin, start a Claude chat: the floating Clawd appears and shows you how to use it the first time; a “Clawdex” icon also appears on the desktop.<br>Signing in to a desktop app does not sign in its CLI. Delegation uses each AI’s command-line tool, so sign in there once. Open Add AI to install or sign in, then click an installed AI to try it and add it after a successful reply.<br>See the list below for delegation, read-only and Key requirements.<br>__ALL_CAPABILITIES__<br>To let another AI take work: click Install and confirm the download in a new terminal; click Sign in, then Done or click its item to try (uses a little quota and checks within 60 seconds; Antigravity is tested once on its first scan); after that everything happens in the floating window. Codex delegation also requires the official openai/codex-plugin-cc plugin.<br>Claude accounts are detected after you switch; for other AIs: Right-click → Teammates → Switch, add it.")],
+];
+let helpTab = 0;
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".htabs button"); if (!b) return; e.stopPropagation(); helpTab = +b.dataset.h; if (refreshDialog) refreshDialog(); }, true);   // 帮助里点上面的小标签换一块
+const showHelp = () => dialog(() => `<h2>${L("帮助", "Help")}</h2><div class="htabs">${HELP().map((h, i) => `<button class="${i === helpTab ? "on" : ""}" data-h="${i}">${h[0]}</button>`).join("")}</div><div class="hbody">${HELP()[helpTab][1].replaceAll("__CAPABILITIES__", Object.values(KNOWN).filter(k=>k.name!=="Codex"&&k.name!=="Antigravity").map(capabilityText).join("<br>")).replaceAll("__ALL_CAPABILITIES__", Object.values(KNOWN).map(capabilityText).join("<br>")).replaceAll("__GEMINI_CAP__", KNOWN.Antigravity ? capabilityText(KNOWN.Antigravity) : L("没装","Not installed")).replaceAll("__CODEX_CAP__", KNOWN.Codex ? capabilityText(KNOWN.Codex) : L("等待检测","Awaiting detection")).replaceAll("__AI_NAMES__",Object.keys(KNOWN).filter(n=>n!=="Codex"&&n!=="Antigravity").map(aiLabel).join(" / "))}</div>`,
+  [[() => L("好", "OK"), null, true]]);
+document.querySelectorAll("#seg button").forEach(b => b.onclick = e => { e.stopPropagation(); mode[side] = b.dataset.m; render(); });
+document.querySelectorAll(".tab").forEach(b => b.onclick = e => {   // 标签 = 翻面：转到 90 度时换成另一面，再转回来
+  e.stopPropagation(); if (b.dataset.s === side) return;
+  const c = $("card"); c.classList.add("turn");
+  setTimeout(() => { side = b.dataset.s; render(); c.classList.remove("turn"); }, 200);
+});
+$("close").innerHTML = IC.x;
+$("close").onclick = e => {   // 关闭；编辑到一半就问一句
+  e.stopPropagation();
+  if (editing) dialog(() => `<h2>${L("还没保存", "Unsaved changes")}</h2><p>${L("要放弃这次的修改吗？", "Discard your changes?")}</p>`, [[() => L("继续编辑", "Keep editing"), null], [() => L("放弃并关闭", "Discard and close"), () => { stopEdit(false); window.close(); }, true]]);   // 10-28 用户：说要退出就直接退出，不要再点一次 ×
+  else window.close();
+};
+window.addEventListener("storage", e => { if (e.key === "clawdex.current" && !editing) render(); });
+window.addEventListener("storage", e => { if (e.key === KEY) { load(); render(); } });   // 跑道那边拖了小圆圈，这里跟着变
+window.addEventListener("storage", e => { if (e.key === "clawdex.lang") { EN = e.newValue === "en"; render(); } });
+load();
+// 小窗（真插件）：数据从 Claude 里的克代同堂插件来，保存 = 存回插件
+if (window.clawdex) {
+  document.body.classList.add("float");
+  const LV = ["关", "低", "中", "高"];
+  // 「换号」那一面：能接手的 = 电脑上认出来的 AI（它现在登录的号）+ 你手动加的号（额度查不到就写查不到）；顺序 = 浮窗头顶小人的顺序
+  const faceOf = ai => ai === "Claude" ? "小克" : (KNOWN[ai] || {}).face || "蓝";
+  const current = () => { try { return JSON.parse(localStorage.getItem("clawdex.current") || "null") || {name:"Claude",ai:"Claude"}; } catch(e) { return {name:"Claude",ai:"Claude"}; } };
+  const savedAccts = () => { try { return (JSON.parse(localStorage.getItem(KEY) || "{}") || {}).accounts || []; } catch (e) { return []; } };
+  let detectedAccounts = [];
+  let claudeIds = { current: null, orgMap: {} };   // 插件给的：桌面正在用的号、每个号对应的组织（拿来对上命令行登录的是几号）
+  const NOW_USING = () => L("正在用 · 不派给自己", "In use · not delegated to itself");
+  const cliClaude = () => detectedAccounts.find(a => a.id && KNOWN.Claude?.cliOrg && (claudeIds.orgMap[a.id] || [])[0] === KNOWN.Claude.cliOrg);
+  acctInfo = m => {
+    const main = current();
+    if (m.name === "Claude") {
+      const acc = cliClaude();
+      return { label: acc ? acc.name : "Claude", grey: main.ai === "Claude" && acc && acc.name === main.name ? NOW_USING() : "" };
+    }
+    return main.ai === m.name ? { label: aiLabel(m.name), grey: NOW_USING() } : null;
+  };
+  acctExtra = () => {
+    const main = current(), cli = cliClaude(), hasClaude = team.some(m => m.name === "Claude" && !m.gone);
+    const claude = detectedAccounts.filter(a => a.ai === "Claude" && (!hasClaude || a !== cli)).map(a => ({ name: a.name, face: "小克",
+      why: a.name === main.name && main.ai === "Claude" ? NOW_USING() : a === cli ? L("点「加一个」加进名单", "Use Add AI to list it") : L("命令行版 Claude 没登录这个号", "The Claude command-line tool is not signed in to this account") }));
+    const others = savedAccts().filter(a => a.ai !== "Claude").map(a => ({ name: a.name, face: faceOf(a.ai), why: L("要在 " + aiLabel(a.ai) + " 里登录这个号才能派", "Sign in to this account in " + aiLabel(a.ai) + " to delegate to it") }));
+    return [...claude, ...others];
+  };
+  let found = [];   // 电脑上认出来的 AI
+  const acctsOf = mates => ["Codex", "Antigravity"].filter(n => usable(KNOWN[n])).map(n => ({ name: n, face: faceOf(n), left: null, fill: "#6E6A63" }))   // 换号看「能不能换过去」，跟委派名单无关（10-28：Gemini 不接委派，但能换过去）
+    .concat([...detectedAccounts.filter(a=>a.ai === "Claude"), ...savedAccts()].filter((a,i,all)=>all.findIndex(b=>b.name===a.name)===i).map(a => ({ name: a.name, ai: a.ai, extra: !detectedAccounts.some(b=>b.name===a.name), face: faceOf(a.ai), left: null, fill: "#6E6A63" })));
+  const drawAccts = renderAccts;
+  renderAccts = function () {
+    const allAccts = accts; accts = accts.filter(a => a.name !== current().name);
+    drawAccts();
+    const shownAccts = relayAccts(); accts = allAccts;
+    const box = $("accts");
+    box.querySelectorAll(".acct").forEach((r, i) => {   // 手动加的号：编辑时能移除
+      const a = shownAccts[i];
+      if (!a || !a.extra) return;
+      const x = document.createElement("span");
+      x.className = "leave"; x.textContent = "×"; x.title = L("移除", "Remove");
+      x.onclick = e => { e.stopPropagation(); accts = accts.filter(b => b !== a); renderAccts(); };
+      r.append(x);
+    });
+    const me = document.createElement("div");   // 当前的号放最上面、单独标出来（照 Google 等账号切换器）
+    me.className = "acct me";
+    me.innerHTML = `<div class="face"><img alt="" src="${FACE[faceOf(current().ai)]}"></div><div class="name">${current().name}</div><span class="pc now">${L("当前", "Current")}</span>`;
+    box.prepend(me);
+    const el = $("addAcct");
+    el.innerHTML = `<button class="btn">${IC.plus} ${L("加一个号", "Add account")}</button>`;
+    el.querySelector(".btn").onclick = e => {
+      e.stopPropagation();
+      if (el.classList.contains("open")) { openPick && openPick(); return; }
+      if (openPick) openPick();
+      el.classList.add("open");
+      const menu = document.createElement("div");
+      menu.className = "menu";
+      ["Claude", ...Object.keys(KNOWN).filter(n => n !== "Claude")].forEach(ai => {
+        const d = document.createElement("div");
+        d.className = "opt";
+        d.innerHTML = `<span class="tick"></span><span class="t">${aiLabel(ai)}</span><span class="tag">${ai === "Claude" ? "" : safeStatus(KNOWN[ai] || {})}</span>`;
+        d.onclick = ev => {   // 名字自动编号：Claude 1 是当前的号，认出来的那个 AI 算第 1 个
+          ev.stopPropagation();
+          const has = n => accts.some(b => b.name === n) || n === current().name;
+          let k = 2;
+          while (has(`${ai} ${k}`)) k++;
+          accts.push({ name: `${ai} ${k}`, ai, extra: true, face: faceOf(ai), left: null, fill: "#6E6A63" });
+          if (openPick) openPick(); renderAccts();
+        };
+        menu.append(d);
+      });
+      el.append(menu);
+      openPick = () => { el.classList.remove("open"); menu.remove(); openPick = null; };
+    };
+  };
+  let levels = {};
+  const rowOf = mt => {
+    mt = { ...mt, model: normalizeModel(mt.model) };
+    const k = KNOWN[mt.name] || { face: "蓝", left: null, models: modelsOf(mt.name, mt.model), model: mt.model, job: ALL };
+    if (mt.name === "Antigravity" && (["查资料、读长文件、照方案改文件",k.jobPair?.zh,k.jobPair?.en].includes(mt.job) || mt.job?.startsWith("查资料、读长文件、照方案改文件；只读："))) mt.job = k.job;
+    const jobs = (mt.jobs || []).filter(j => !isJudge(j.t)).map(j => ({...j}));
+    if (isJudge(mt.job)) mt = { ...mt, job: JUDGE() };
+    if (!jobs.some(j => j.t === mt.job)) jobs.unshift({ t: mt.job, src: (mt.job === k.job || [k.jobPair?.zh,k.jobPair?.en].includes(mt.job) || JOB_TEXT.some(p=>p.includes(mt.job))) ? "推荐" : "我" });
+    if (!jobs.some(j => j.t === k.job || (j.src === "推荐" && [k.jobPair?.zh, k.jobPair?.en].includes(j.t)))) jobs.push({ t: k.job, src: "推荐" });
+    const ji = jobs.findIndex(j => isJudge(j.t)); if (ji >= 0) jobs.splice(ji, 1);
+    jobs.push({ t: JUDGE(), src: "判断" });   // 推荐那句中英文算同一句（10-28 用户：两个推荐一模一样）
+    const models = [...(mt.models || []).map(x => ({...x,t:normalizeModel(x.t)}))];
+    for (const t of [mt.model, ...k.models]) if (!models.some(x => x.t === t)) models.push({t,mine:false});
+    return { id:mt.id, addedBy:mt.addedBy, icon:mt.icon, level:mt.level, name: mt.name, face: k.face, left: null, models, model: mt.model, jobs, job: jobs.findIndex(j => j.t === mt.job), off: mt.level === "关", installed: mt.installed, login: mt.login };
+  };
+  let latestSettings = {mates:[],mode:"quota"};
+  window.clawdex.onState(st => {
+    latestSettings = JSON.parse(JSON.stringify(st.settings || {mates:[],mode:"quota"}));
+    const account = st.account?.ai === "Claude" ? st.account : st.claudeAccount?.ai === "Claude" ? st.claudeAccount : {ai:"Claude",label:"Claude"};
+    try { const active = JSON.parse(localStorage.getItem("clawdex.current") || "null"); if (!active || active.ai === "Claude") localStorage.setItem("clawdex.current", JSON.stringify({ai:"Claude",name:account.label})); } catch(e) {}
+    detectedAccounts = st.accounts || [];
+    claudeIds = { current: st.claudeCurrentId || null, orgMap: st.claudeOrgMap || {} };
+    const completed = (st.known || []).filter(ai=>tryPending.has(ai.name) && !ai.testing && ai.lastTrial?.testedAt !== KNOWN[ai.name]?.lastTrial?.testedAt);
+    for (const ai of st.known || []) { if (ai.login === "yes") loginPending.delete(ai.name); if (!ai.testing && completed.some(k=>k.name===ai.name)) tryPending.delete(ai.name); }
+    if (editing) {   // 认证刷新只更新状态和登录按钮，保留未保存的编辑内容。
+      let changed = false;
+      for (const ai of st.known || []) {
+        if (JSON.stringify(KNOWN[ai.name]?.statusSnapshot) !== JSON.stringify(ai)) changed = true;
+        if (KNOWN[ai.name]) Object.assign(KNOWN[ai.name], {...ai,jobPair:ai.job,job:ai.job?L(ai.job.zh,ai.job.en):ALL,statusSnapshot:ai});
+        team.filter(m => m.name === ai.name).forEach(m => Object.assign(m, {installed:ai.installed,login:ai.login}));
+      }
+      for(const ai of completed) if(usable(ai) && !team.some(m=>m.name===ai.name)){team.push(make(ai.name));changed=true;keepAddOpen=false;}
+      if (changed) render(); return;
+    }
+    KNOWN = Object.fromEntries((st.known || []).map((ai, i) => {
+      const model = normalizeModel(ai.model);
+      return [ai.name, { ...ai, statusSnapshot:ai, display: ai.display, jobPair: ai.job, installed: ai.installed, login: ai.login, command: ai.command, loginCommand: ai.loginCommand, face: ai.name === "Codex" ? "codex" : ai.name === "Claude" ? "小克" : ai.name === "Gemini" || ai.name === "Antigravity" ? "gemini" : ["蓝", "紫", "绿"][i % 3], left: null, model, models: modelsOf(ai.name, model), job: ai.job ? L(ai.job.zh, ai.job.en) : ALL }];
+    }));
+    const mates = ((st.settings && st.settings.mates) || []).filter(m=>!(["Gemini","Qwen","Kimi","Antigravity"].includes(m.name) && !m.addedBy && (!m.id || m.id === m.name+"#1") && (!KNOWN[m.name] || [KNOWN[m.name].jobPair?.zh,KNOWN[m.name].jobPair?.en].includes(m.job) || (m.name === "Antigravity" && m.job === "查资料、读长文件、照方案改文件")) && KNOWN[m.name]?.lastTrial?.login !== "yes" && !usable(KNOWN[m.name]) && ["default","默认","Default"].includes(m.model) && !m.models?.some(x=>x.mine) && !(m.jobs||[]).some(j=>j.src === "我")));
+    mates.forEach(mt => { if (!KNOWN[mt.name]) KNOWN[mt.name] = { installed: mt.installed, login: mt.login, face: "蓝", left: null, models: modelsOf(mt.name, mt.model), model: mt.model || defaultModel(), job: mt.job || ALL }; });
+    levels = {}; mates.forEach((m,i) => { m.id ||= m.name+"#"+(mates.slice(0,i).filter(x=>x.name===m.name).length+1); levels[m.id] = m.level; });
+    team = mates.map(mt => rowOf({ ...mt, installed: KNOWN[mt.name]?.installed, login: KNOWN[mt.name]?.login }));
+    found = [...new Set(mates.map(m => m.name))];
+    accts = acctsOf(mates);
+    const q = st.quota || {};
+    const leftOf = n => { const u = q[n]; const values=[u?.five,u?.week].filter(v=>typeof v === "number"); return values.length ? Math.max(0, 1 - Math.max(...values) / 100) : null; };   // 用得多的那个额度算
+    accts.forEach(a => { if (!a.extra) { a.left = leftOf(a.name); a.noLogin = (st.known || []).some(k => k.name === a.name && k.login === "no"); } });   // 没登录的跟委派那面一样写「没登录」
+    team.forEach(t => { t.left = leftOf(t.name); });
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+    if (saved && saved.relay) accts.sort((a, b) => saved.relay.indexOf(a.name) - saved.relay.indexOf(b.name));
+    mode.work = (st.settings && st.settings.mode) === "order" ? "order" : "quota";
+    render();
+  });
+  const mateValue = m => ({
+    id:m.id, addedBy:m.addedBy, icon:m.icon, models:m.models, jobs:m.jobs, name:m.name, model:normalizeModel(m.model), job:m.jobs[m.job].t,
+    level:m.off ? "关" : (m.level && m.level !== "关" ? m.level : "中"),
+  });
+  save = function () {   // 存回插件：每个 AI 的模型、负责什么、派活程度（暂不派活 = 关；原来是关的打开后 = 中）
+    const before = draft ? JSON.parse(draft) : {team:[],mode:{work:latestSettings.mode}};
+    const base = before.team.filter(m => !m.gone).map(mateValue);
+    const edited = team.filter(m => !m.gone).map(mateValue);
+    const removedIds = base.filter(m => !edited.some(x => x.id === m.id)).map(m => m.id);
+    const patches = edited.flatMap(m => {
+      const old = base.find(x => x.id === m.id); if (!old) return [];
+      const fields = Object.fromEntries(Object.keys(m).filter(k => k !== "id" && k !== "name" && JSON.stringify(m[k]) !== JSON.stringify(old[k])).map(k => [k,m[k]]));
+      return Object.keys(fields).length ? [{id:m.id,fields}] : [];
+    });
+    const shared = base.filter(m => edited.some(x => x.id === m.id)).map(m => m.id);
+    const relative = edited.filter(m => shared.includes(m.id)).map(m => m.id);
+    const edits = {removedIds, patches, added:edited.filter(m => !base.some(x => x.id === m.id)),
+      orderIds:JSON.stringify(shared) === JSON.stringify(relative) ? null : edited.map(m => m.id)};
+    if (mode.work !== before.mode.work) edits.mode = mode.work;
+    let mates = (latestSettings.mates || []).filter(m => !removedIds.includes(m.id)).map(m => ({...m,...(patches.find(p => p.id === m.id)?.fields || {})}));
+    for (const m of edits.added) if (!mates.some(x => x.id === m.id)) mates.push(m);
+    if (edits.orderIds) {
+      const ordered = edits.orderIds.map(id => mates.find(m => m.id === id)).filter(Boolean); let at = 0;
+      mates = mates.map(m => edits.orderIds.includes(m.id) ? ordered[at++] : m);
+    }
+    window.clawdex.send({ type:"settings", from:"settings", mates, edits, mode:edits.mode || latestSettings.mode });
+    let d = {};
+    try { d = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) {}
+    d.accounts = accts.filter(a => a.extra).map(a => ({ name: a.name, ai: a.ai }));   // 手动加的号，浮窗也读这一份
+    d.relay = accts.map(a => a.name); d.mode = Object.assign({}, d.mode, { relay: mode.relay });   // 换号的顺序存给浮窗（同一个程序，共用这一份）
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {}
+  };
+}
+document.addEventListener("click", () => openPick && openPick());
+document.addEventListener("keydown", e => { if (e.key === "Escape" && openPick) openPick(); });
+render();
+</script>
+</body>
+</html>

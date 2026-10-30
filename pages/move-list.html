@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title></title>
+<style id="settings-style">
+:root {
+  --paper: #FBF8F2; --ink: #26231F; --sub: #6E6A63; --pencil: #9C968C; --faint: #C6C0B5;
+  --line: #E6DFD3; --accent: #D77757; --accent-soft: #F7E3DA; --bg: #ECE8E0;
+  --hand: "KaiTi", "STKaiti", "Kaiti SC", serif;
+  --rough: 12px 4px 14px 5px / 5px 14px 4px 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--hand); font-size: 15px; }
+.page { max-width: 440px; margin: 24px auto; padding: 22px 20px 22px; background: var(--paper); border-radius: 10px; }
+h1 { font-size: 22px; margin: 0 0 4px; display: flex; justify-content: space-between; align-items: baseline; }
+h1 small { font-size: 13px; color: var(--pencil); font-weight: normal; cursor: pointer; }
+.rule { height: 2px; width: 108px; background: var(--ink); border-radius: 2px 6px 3px 8px; margin-bottom: 8px; }
+
+.mate { position: relative; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.mate .top { display: flex; align-items: center; gap: 10px; }
+.grip { display: none; cursor: grab; color: var(--sub); width: 12px; margin-left: -16px; user-select: none; }
+.ordered .grip { display: inline-block; }   /* 自定顺序：左边冒出小点，能拖着排；按额度：收起来 */
+.mate.dragging { opacity: .35; }
+.mate.over { box-shadow: 0 -2px 0 var(--accent); }
+.face { width: 30px; height: 30px; border: 1.5px solid #B9B1A4; border-radius: 52% 48% 50% 50% / 48% 52% 48% 52%; background: #FFFDF8; display: grid; place-items: center; overflow: hidden; flex: none; }
+.face img { width: 24px; margin-top: 6px; }
+.name { font-weight: 700; font-size: 16px; flex: 1; }
+.mate.off .face, .mate.off .name { opacity: .45; }
+.leave { opacity: 0; color: var(--pencil); cursor: pointer; font-size: 16px; padding: 0 4px; transition: opacity .15s; }
+.mate:hover .leave { opacity: 1; }
+.leave:hover { color: #C4472F; }
+.mate .job { margin: 8px 0 0 40px; }
+.gone { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); color: var(--pencil); }
+.gone s { color: var(--faint); }
+.gone button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; }
+
+/* 下拉：能选，也能自定义；模型多，最上面能搜 */
+.pick { position: relative; }
+.pick > .btn { font: inherit; color: var(--ink); background: none; border: 0; padding: 3px 6px 4px; cursor: pointer; text-align: left; width: 100%;
+  border-bottom: 1.5px solid var(--ink); border-radius: 2px 10px 3px 12px / 2px 3px 6px 4px; display: flex; gap: 6px; align-items: baseline; }
+.pick.model > .btn { width: auto; max-width: 170px; font-size: 13.5px; color: var(--sub); border-bottom-color: var(--pencil); }
+.pick > .btn .v { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick > .btn .v.soft { color: var(--pencil); }
+.pick > .btn .arrow { color: var(--pencil); font-size: 12px; transition: transform .2s; }
+.pick.open > .btn .arrow { transform: rotate(180deg); }
+.menu { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px); background: #FFFDF8; padding: 6px;
+  border: 1.5px solid var(--ink); border-radius: var(--rough); box-shadow: 3px 4px 0 rgba(38,35,31,.08);
+  max-height: 260px; overflow-y: auto; transform-origin: top; animation: drop .16s ease-out; }
+.pick.model .menu { left: auto; right: 0; width: 230px; }
+@keyframes drop { from { opacity: 0; transform: scaleY(.92); } }
+.search { font: inherit; font-size: 13.5px; width: 100%; border: 0; border-bottom: 1.5px solid var(--faint); background: none; outline: none; padding: 4px 6px 5px; margin-bottom: 4px; color: var(--ink); }
+.search:focus { border-bottom-color: var(--accent); }
+.opt { display: flex; align-items: baseline; gap: 6px; padding: 7px 8px; border-radius: 6px; cursor: pointer; line-height: 1.35; }
+.opt:hover, .opt.hl { background: #F3EEE5; }
+.opt .tick { width: 14px; color: var(--accent); flex: none; }
+.opt .t { flex: 1; }
+.opt .tag { font-size: 11.5px; color: var(--pencil); flex: none; }
+.opt .x { opacity: 0; color: var(--pencil); padding: 0 2px; }
+.opt:hover .x { opacity: 1; }
+.opt .x:hover { color: #C4472F; }
+.opt.new { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } }
+.sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.act { color: var(--sub); }
+.act input { font: inherit; width: 100%; border: 0; border-bottom: 1.5px solid var(--accent); background: none; outline: none; padding: 1px 0; color: var(--ink); }
+.act.busy { color: var(--pencil); cursor: default; }
+.empty { padding: 6px 8px; color: var(--pencil); font-size: 13px; }
+
+/* 小问号：大众不一定懂的地方才放 */
+.q { position: relative; flex: none; width: 16px; height: 16px; border: 1px solid var(--pencil); border-radius: 50%; font-size: 11px; color: var(--pencil);
+  display: inline-grid; place-items: center; cursor: help; }
+.q .tip { display: none; position: absolute; right: -6px; bottom: calc(100% + 8px); width: 230px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; color: #5B554C;
+  background: #FFF8E6; border: 1.5px solid #CDBF9F; border-radius: var(--rough); text-align: left; z-index: 9; }
+.q:hover .tip, .q.show .tip { display: block; }
+
+.below { margin-top: 12px; display: flex; justify-content: space-between; align-items: baseline; }
+.add > .btn { border-bottom: 0; color: var(--pencil); width: auto; }
+.add .menu { right: auto; min-width: 200px; }
+.link { font-size: 13px; color: var(--pencil); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; font-family: inherit; padding: 0; }
+.foot { margin-top: 20px; text-align: right; }
+
+/* 弹窗：警告、说明都在页面正中，后面压暗（大家的警告框都这样） */
+.veil { position: fixed; inset: 0; background: rgba(38,35,31,.32); display: grid; place-items: center; z-index: 20; animation: fade .15s ease-out; }
+@keyframes fade { from { opacity: 0; } }
+.dialog { max-height: calc(100vh - 32px); overflow-y: auto; width: min(340px, calc(100vw - 32px)); background: var(--paper); padding: 18px 20px 14px; border: 1.5px solid var(--ink); border-radius: var(--rough);
+  box-shadow: 4px 5px 0 rgba(38,35,31,.12); animation: pop .18s ease-out; }
+@keyframes pop { from { transform: scale(.94); opacity: 0; } }
+.dialog h2 { font-size: 17px; margin: 0 0 8px; }
+.dialog p { margin: 0 0 6px; font-size: 14px; line-height: 1.6; color: #4A453E; }
+.dialog dl { margin: 0; font-size: 13.5px; line-height: 1.6; color: #4A453E; }
+.dialog dt { font-weight: 700; color: var(--ink); margin-top: 8px; }
+.dialog dd { margin: 0; }
+.dialog .acts { display: flex; justify-content: flex-end; gap: 16px; margin-top: 14px; }
+.dialog button { font: inherit; background: none; border: 0; cursor: pointer; color: var(--sub); padding: 2px 0; }
+.dialog button.main { color: var(--accent); font-weight: 700; }
+.ic { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
+.grip .ic { width: 9px; height: 14px; }
+.opt .tick .ic { width: 13px; height: 13px; }
+/* 翻面：整张单子转过去 */
+.card { transition: transform .2s ease-in; transform-origin: 50% 50%; }
+.card.turn { transform: perspective(900px) rotateY(90deg); }
+.say { font-size: 13px; color: var(--sub); margin: 2px 0 6px; min-height: 18px; }
+/* 交棒的号：一行 = 小头 · 名字 · 还剩多少 */
+.acct { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.acct .name { flex: 1; }
+.acct .q2 { width: 70px; height: 5px; border-radius: 3px; background: #E7E0D4; overflow: hidden; }
+.acct .q2 i { display: block; height: 100%; border-radius: 3px; }
+.acct .pc { min-width: 46px; white-space: nowrap; text-align: right; font-size: 12.5px; color: var(--sub); font-family: system-ui, sans-serif; }
+.acct.dragging { opacity: .35; }
+.acct.over { box-shadow: 0 -2px 0 var(--accent); }
+.acct.me .now { width: auto; color: var(--ink); font-weight: 600; font-family: var(--hand); font-size: 14px; }   /* 当前用的号：最上面一行，不进换号顺序 */
+.acct:hover .leave { opacity: 1; }
+.view #addAcct { display: none; }   /* 平时只看，编辑时才能加号 */
+#addAcct { margin-top: 10px; }
+/* 底下的工具栏：随机 / 按顺序 · 翻面 · 保存 */
+.tools { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1.5px dashed var(--line); }
+.seg { display: inline-flex; border: 1.5px solid var(--ink); border-radius: 12px 10px 13px 9px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13.5px; background: none; border: 0; padding: 4px 11px; cursor: pointer; color: var(--sub); }
+.seg button.on { background: var(--ink); color: #FFFDF8; }
+.tbtn { font: inherit; font-size: 13.5px; background: none; border: 1.5px solid var(--ink); border-radius: 11px 13px 9px 12px; padding: 4px 11px; cursor: pointer; color: var(--ink); }
+.tbtn.edit { margin-right: auto; }
+.tools .help { margin-left: auto; }
+.tbtn.save { background: var(--accent); border-color: var(--accent); color: #FFFDF8; }
+.tbtn.save.done { background: none; color: var(--accent); }
+/* 最上面：两个标签（翻面）+ 关闭 × */
+.head { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; }
+.tab { font: inherit; font-size: 17px; background: none; border: 0; padding: 2px 4px 4px; cursor: pointer; color: var(--pencil); border-bottom: 2px solid transparent; border-radius: 2px 6px 3px 8px; }
+.tab.on { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }
+.tab + .tab { margin-left: 14px; }
+.view #modeq { display: none; }   /* ? 只在编辑时、按额度 / 自定顺序旁边 */
+.close { margin-left: auto; font: inherit; background: none; border: 0; cursor: pointer; color: var(--pencil); padding: 2px; line-height: 0; }
+.close:hover { color: var(--ink); }
+.close .ic { width: 16px; height: 16px; }
+/* 平时只看：下拉、离队、加一个、拖动都收起来 */
+.view .pick > .btn { pointer-events: none; border-bottom-color: transparent; }
+.view .pick > .btn .arrow, .view .leave, .view .below, .view .grip, .view .seg { display: none; }
+.view .mate .job { margin-top: 2px; }
+.modeline { display: flex; align-items: center; gap: 6px; min-height: 26px; font-size: 13px; color: var(--sub); }
+.modetag { color: var(--sub); }
+.login-status { color: var(--sub); font-size: 13px; }
+.edit .modetag { display: none; }
+.num { width: 16px; font: 600 12px system-ui, sans-serif; color: var(--pencil); text-align: center; flex: none; }
+.tools .ghost { font: inherit; font-size: 13.5px; background: none; border: 0; cursor: pointer; color: var(--sub); padding: 4px 6px; }
+/* 小窗模式（真插件）：整页就是这张卡片 */
+body.float { background: var(--paper); }
+body.float { overflow-y: auto; overflow-x: hidden; margin: 0; }   /* 去掉默认白边，不然比窗口高一点就冒滚动条（10-28） */   /* 下拉打开超出窗口时能往下滚 */
+body.float .page { margin: 0; max-width: none; border-radius: 0; min-height: 100vh; box-sizing: border-box; }
+body.float .cap { display: none !important; }   /* 「换号」那一面放回来（10-28 用户：我看不到号） */
+body.float .head { -webkit-app-region: drag; }   /* 按住最上面一行拖 = 挪小窗 */
+body.float .head button { -webkit-app-region: no-drag; }
+.htabs { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 4px 0 10px; }
+.htabs button { font: inherit; font-size: 13.5px; background: none; border: 1.2px solid #D8D0C2; border-radius: 10px 8px 11px 9px; padding: 2px 9px; cursor: pointer; color: var(--sub); }
+.htabs button.on { border-color: var(--ink); color: var(--ink); background: var(--accent-soft); }
+.hbody { font-size: 14px; line-height: 1.7; max-height: 52vh; overflow-y: auto; }
+.hbody table { border-collapse: collapse; width: 100%; font-size: 13px; line-height: 1.45; }
+.hbody th, .hbody td { border-bottom: 1px solid var(--line); padding: 5px 4px; text-align: left; vertical-align: top; }
+.hbody th { color: var(--sub); font-weight: 600; }
+.hbody tr > th:first-child { white-space: nowrap; padding-right: 8px; }
+.cap { text-align: center; color: var(--pencil); font-size: 12px; margin-top: 10px; }
+/* Keep the established palette, drawings and type; allow the content to shrink. */
+html, body { max-width:100%; overflow-x:hidden; }
+.page { width:100%; min-width:0; }
+.name, .pick, .opt .t { min-width:0; overflow-wrap:anywhere; }
+.mate .top { flex-wrap:wrap; }
+.mate .name { flex:1 1 110px; }
+.mate .model { flex:0 1 auto; max-width:100%; }
+.pick.model > .btn { max-width:100%; }
+.mate .job > .btn .v { white-space:normal; overflow-wrap:anywhere; }
+.unavailable { color:var(--pencil); font-size:11px; font-weight:normal; margin-left:6px; }
+.add { width:100%; }
+.add .menu { width:100%; min-width:0; max-height:300px; }
+.ai-option { align-items:center; cursor:default; }
+.ai-option .t { display:flex; flex-direction:column; gap:3px; }
+.ai-option .tag { white-space:normal; overflow-wrap:anywhere; font-size:12px; }
+.ai-option .tbtn { flex:none; white-space:nowrap; }
+.ai-option.tryable { cursor:pointer; }
+.tools { flex-wrap:wrap; }
+.acct .name { overflow-wrap:anywhere; }
+@media(max-width:380px) { .page { padding:18px 14px; } .mate .top { gap:7px; } .mate .model { margin-left:37px; } .mate .job { margin-left:37px; } .acct { gap:7px; } .acct .q2 { width:42px; flex:none; } }
+</style>
+<style>
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+header { -webkit-app-region: drag; padding: 18px 20px 10px; background: var(--paper); }
+header h1 { align-items: flex-start; gap: 12px; }
+#title { min-width: 0; flex: 1; overflow-wrap: anywhere; line-height: 1.25; }
+button, input { -webkit-app-region: no-drag; }
+button { font: inherit; cursor: pointer; color: var(--ink); background: none; border: 0; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#close { font-size: 23px; flex: none; padding: 0; }
+#summary { margin: 6px 0; color: var(--sub); font-size: 13px; line-height: 1.5; }
+main { overflow-y: auto; flex: 1; padding: 8px 20px 16px; background: var(--paper); min-height: 0; }
+.move-group { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px; }
+.group-head { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; }
+.group-toggle { text-align: left; flex: 1; min-width: 0; font-size: 16px; overflow-wrap: anywhere; padding: 0; }
+.group-action { color: var(--sub); font-size: 12px; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
+.chat-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0 8px min(calc(var(--depth) * 16px), 96px); }
+.chat-row.branch { border-left: 1px solid var(--line); }
+.chat-row input { accent-color: var(--accent); margin: 3px 0 0; width: 16px; height: 16px; flex: none; cursor: pointer; }
+.chat-body { min-width: 0; flex: 1; }
+.chat-title { display: block; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
+.chat-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; font-size: 12px; color: var(--pencil); margin-top: 4px; }
+.status { color: var(--sub); }
+.status.unfinished, .status.updated { color: var(--accent); }
+footer { display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 14px 20px; background: var(--paper); border-top: 1.5px solid var(--line); }
+footer button { border: 1.5px solid var(--ink); border-radius: var(--rough); padding: 8px 12px; }
+#submit { background: var(--accent-soft); }
+button:disabled { opacity: .45; cursor: default; }
+#error { color: var(--accent); padding: 0 20px; background: var(--paper); font-size: 13px; }
+.empty-list { color: var(--sub); line-height: 1.6; padding-top: 20px; }
+</style></head>
+<body>
+<header><h1><span id="title"></span><button id="close"></button></h1><div class="rule"></div><p id="summary" aria-live="polite"></p></header>
+<main id="groups"></main><div id="error" role="alert"></div>
+<footer><button id="cancel"></button><button id="submit" disabled></button></footer>
+<script>
+let EN = localStorage.getItem('clawdex.lang') === 'en';
+const L = (zh, en) => EN ? en : zh;
+const $ = id => document.getElementById(id);
+let data = null, loading = true, busy = false, failed = false;
+const selected = new Set(), collapsed = new Set();
+const allRows = () => (data?.groups || []).flatMap(g => g.rows);
+function updateCount() {
+  $('summary').textContent = L(`选了 ${selected.size} 个 · 只搬勾的，没勾的以后还能接`, `${selected.size} selected · Only checked chats move; you can bring the rest later`);
+  $('submit').textContent = L(`接过来 ${selected.size} 个`, `Bring over ${selected.size}`);
+  $('submit').disabled = busy || !selected.size || loading || failed;
+}
+function choose(row, checked, group) {
+  checked ? selected.add(row.id) : selected.delete(row.id);
+  // 选上级时顺带选它的后代；取消只影响这一行，可以保留或单独取消分支。
+  if (checked) {
+    const index = group.rows.indexOf(row);
+    for (let i = index + 1; i < group.rows.length && group.rows[i].depth > row.depth; i++) selected.add(group.rows[i].id);
+  }
+  paint();
+}
+function paint() {
+  document.documentElement.lang = EN ? 'en' : 'zh';
+  document.title = L('挑要接过来的对话', 'Choose chats to bring over');
+  $('title').textContent = document.title;
+  $('cancel').textContent = L('取消', 'Cancel');
+  $('close').textContent = '×'; $('close').setAttribute('aria-label', L('关闭', 'Close'));
+  const container = $('groups'); container.replaceChildren();
+  if (loading || failed || !data?.groups?.length) {
+    const empty = document.createElement('p'); empty.className = 'empty-list';
+    empty.textContent = loading ? L('正在读旧号的对话…', 'Reading chats from the old account…') : failed ? L('读不到旧号的对话，请检查 Claude 数据文件的读取权限。', 'Cannot read old chats. Check read access to Claude data files.') : L('旧号最近 7 天没有需要接过来的对话。', 'No old chats need bringing over from the last 7 days.');
+    container.append(empty);
+  }
+  for (const group of data?.groups || []) {
+    const section = document.createElement('section'); section.className = 'move-group';
+    const head = document.createElement('div'); head.className = 'group-head';
+    const toggle = document.createElement('button'); toggle.className = 'group-toggle';
+    const folded = collapsed.has(group.id);
+    toggle.textContent = (folded ? '▸ ' : '▾ ') + (group.name || L('未分文件夹', 'No folder')) + ` (${group.rows.length})`;
+    toggle.setAttribute('aria-expanded', String(!folded));
+    toggle.onclick = () => { folded ? collapsed.delete(group.id) : collapsed.add(group.id); paint(); };
+    head.append(toggle);
+    for (const checked of [true, false]) {
+      const action = document.createElement('button'); action.className = 'group-action';
+      action.textContent = checked ? L('全选', 'All') : L('全不选', 'None');
+      action.onclick = () => { group.rows.forEach(r => checked ? selected.add(r.id) : selected.delete(r.id)); paint(); };
+      head.append(action);
+    }
+    section.append(head);
+    if (!folded) for (const row of group.rows) {
+      const line = document.createElement('div'); line.className = 'chat-row' + (row.depth ? ' branch' : ''); line.style.setProperty('--depth', row.depth);
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.id = 'chat-' + row.id; checkbox.checked = selected.has(row.id);
+      checkbox.onchange = () => choose(row, checkbox.checked, group);
+      const body = document.createElement('div'); body.className = 'chat-body';
+      const title = document.createElement('label'); title.className = 'chat-title'; title.htmlFor = checkbox.id; title.textContent = row.title || L('未命名对话', 'Untitled chat');
+      const meta = document.createElement('div'); meta.className = 'chat-meta';
+      const time = document.createElement('time'); time.dateTime = new Date(row.at).toISOString(); time.textContent = new Date(row.at).toLocaleString(EN ? 'en-US' : 'zh-CN', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      const tag = document.createElement('span'); tag.className = 'status ' + row.tag;
+      tag.textContent = row.tag === 'unfinished' ? L('做到一半', 'In progress') : row.tag === 'updated' ? L('之前搬过 · 有新进展', 'Moved before · New progress') : row.tag === 'done' ? L('看起来做完了', 'Looks finished') : row.tag === 'unknown' ? L('记录暂时读不到', 'Transcript unavailable') : L('待挑选', 'Choose if needed');
+      meta.append(time, tag); body.append(title, meta); line.append(checkbox, body); section.append(line);
+    }
+    container.append(section);
+  }
+  updateCount();
+}
+$('close').onclick = $('cancel').onclick = () => { if (!busy) window.clawdex.closeMove(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !busy) window.clawdex.closeMove(); });
+$('submit').onclick = async () => {
+  if (busy || !selected.size) return;
+  busy = true; updateCount(); $('error').textContent = '';
+  const result = await window.clawdex.submitMove([...selected]);
+  if (!result?.ok) { $('error').textContent = result?.error === 'stale' ? L('账号已变化，请关闭后重新挑选。', 'Account changed. Close and choose again.') : L('没有接成功，请重试。', 'Could not bring chats over. Please retry.'); busy = false; updateCount(); }
+};
+window.clawdex.onMoveLang(lang => { EN = lang === 'en'; paint(); });
+paint();
+window.clawdex.moveList().then(result => {
+  loading = false; failed = !!result.error; data = result;
+  EN = (localStorage.getItem('clawdex.lang') || result.lang) === 'en';
+  allRows().filter(r => r.checked).forEach(r => selected.add(r.id)); paint();
+}).catch(() => { loading = false; failed = true; paint(); });
+</script></body></html>

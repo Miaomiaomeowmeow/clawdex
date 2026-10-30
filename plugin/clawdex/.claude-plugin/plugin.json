@@ -1,0 +1,6 @@
+{
+  "name": "clawdex",
+  "version": "0.1.0",
+  "description": "克代同堂：看额度、把小活委派给 Codex、额度用完提示换号并把旧号的对话接过来",
+  "types": "./types/index.d.ts"
+}

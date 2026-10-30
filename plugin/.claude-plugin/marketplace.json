@@ -1,0 +1,14 @@
+{
+  "name": "clawdex",
+  "owner": {
+    "name": "Miaomiao"
+  },
+  "plugins": [
+    {
+      "name": "clawdex",
+      "source": "./clawdex",
+      "description": "Clawdex (克代同堂): see your quota, hand small tasks between Claude and Codex, and bring conversations over after switching accounts"
+    }
+  ],
+  "description": "Clawdex: quota, delegation between Claude and Codex, and account switching"
+}

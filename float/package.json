@@ -1,0 +1,13 @@
+{
+  "name": "clawdex-float",
+  "version": "0.1.0",
+  "description": "克代同堂的桌面浮窗：跑道 + 队伍小组件，数据来自 Claude 里的克代同堂插件",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "33.4.11"
+  }
+}

@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>克代同堂跑道</title>
+<style>
+@font-face { font-family: "ChillRound"; src: url("fonts/ChillRoundM.ttf") format("truetype"); font-display: block; }
+/* v5（10-27）：跑道 + 定下的队伍小组件 v11 拼成一个界面，不改小组件的样子和交互
+   平时只有主 AI（姿势 = 进度）；碰它停半秒 = 小组件（队友从头后面探出来、头顶是「手」、脚下一排小圆圈）；点它 = 跑道横着长出来
+   接棒 = 把主 AI 拖到脚下的一个小圆圈上 */
+:root {
+  --paper: #FBF8F2; --ink: #26231F; --sub: #6E6A63; --pencil: #9C968C; --faint: #C6C0B5; --line: #E6DFD3;
+  --accent: #D77757; --warn: #C98A2E; --hot: #C4472F; --bg: #ECE8E0;
+  --hand: "ChillRound", "KaiTi", "STKaiti", "Kaiti SC", serif;   /* 10-28 用户选寒蝉半圆体（OFL 开源，可随软件发布）；缺的字用楷体补 */
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--hand); }
+.wrap { max-width: 460px; margin: 28px auto; padding: 0 16px; }
+
+/* 整块高度永远不变 */
+.dock { position: relative; background: var(--paper); border-radius: 10px; height: 200px; overflow: hidden; }
+.stage { position: absolute; inset: 0; transition: transform .7s cubic-bezier(.6,0,.3,1), opacity .4s; }
+.stage.leave { transform: translateX(-110%); opacity: 0; }
+.stage.enter { transform: translateX(105%); transition: none; }
+
+/* 跑道：平时不显示（小克的姿势本身就是进度）；点开从小克脚下往右横着长；队伍小组件出来时先让开 */
+.bar { position: absolute; left: 56px; width: 300px; top: 128px; height: 30px; transform: scaleX(0); transform-origin: 0 50%; transition: transform .55s cubic-bezier(.3,1.15,.5,1), opacity .2s; }
+.dock.open .bar { transform: scaleX(1); }
+.dock.team .bar, .dock.handing .bar { opacity: 0; }   /* 小组件或交棒的弧出来时，跑道先让开 */
+.bar .clip { position: absolute; inset: 0; transition: transform .16s ease-in; transform-origin: 50% 50%; clip-path: polygon(14px 0, 272px 0, 300px 50%, 272px 100%, 14px 100%, 0 50%); background: #F3EEE5; }
+.bar .clip::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, var(--faint) 1.2px, transparent 1.6px) 0 50% / 44px 100% repeat-x; left: 40%; }
+.scene { position: absolute; left: 0; top: 0; bottom: 0; width: 0; transition: width .6s cubic-bezier(.3,1.1,.5,1); animation: roll linear infinite; z-index: 1; }
+@keyframes roll { to { background-position-x: -200px, -200px, -200px; } }
+.scene.s0 { background: radial-gradient(circle, #fff 1px, transparent 1.6px) 0 0 / 15px 13px, radial-gradient(circle, #FFE9A8 1.2px, transparent 1.8px) 7px 8px / 23px 17px, #232A5C; animation-duration: 1.2s; }
+.scene.s1 { background: radial-gradient(ellipse 14px 7px, #fff 60%, transparent 66%) 0 9px / 50px 30px, radial-gradient(ellipse 10px 5px, #fff 60%, transparent 66%) 26px 20px / 50px 30px, linear-gradient(#A8D8F2, #DDF1FB); animation-duration: 2.4s; }
+.scene.s2 { background: linear-gradient(transparent 46%, rgba(255,255,255,.85) 46% 54%, transparent 54%), repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 2px, transparent 2px 40px), #D9735A; animation-duration: 4.5s; }
+.scene.s3 { background: radial-gradient(circle at 50% 130%, #D7AE66 45%, transparent 47%) 0 0 / 34px 30px, radial-gradient(circle, #C79A50 1px, transparent 1.6px) 5px 6px / 11px 9px, #EACB8E; animation-duration: 9s; }
+.scene.s4 { background: repeating-linear-gradient(45deg, #E59A86 0 8px, #F4C9BD 8px 16px), none, none; animation-duration: 16s; }
+.bar.flip .clip { transform: scaleY(0); }
+.bar { cursor: pointer; }
+/* 这周的跑道：分成 7 段，一天一段，从回满那天数起 */
+.days { position: absolute; left: 14px; right: 28px; top: 0; bottom: 0; display: flex; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .1s; }
+.bar.wk .days { opacity: 1; }
+.days span { flex: 1; position: relative; }
+.days span + span::before, .days span + span::after { content: ""; position: absolute; left: 0; height: 7px; border-left: 1.6px solid rgba(38,35,31,.42); border-radius: 1px; }
+.days span + span::before { top: 2px; }
+.days span + span::after { bottom: 2px; }
+.bar.wk .clip::after { display: none; }
+/* 每一段有自己的小动效（学参考「动态思考强度」：每档一种，都很轻） */
+.scene::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.scene.s0::after { background: radial-gradient(circle, #fff 1.3px, transparent 2px) 4px 3px / 19px 15px, radial-gradient(circle, #FFE9A8 1.1px, transparent 1.7px) 12px 10px / 27px 21px; animation: twinkle 1.6s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity: .1; } to { opacity: 1; } }
+.scene.s1 { animation-name: drift; }
+@keyframes drift { from { background-position: 0 9px, 26px 20px, 0 0; } to { background-position: -100px 9px, -24px 20px, 0 0; } }
+.scene.s2::after { background: linear-gradient(90deg, transparent 0 55%, rgba(255,255,255,.75) 55% 85%, transparent 85%) 0 26% / 70px 1.6px repeat-x, linear-gradient(90deg, transparent 0 60%, rgba(255,255,255,.6) 60% 90%, transparent 90%) 30px 76% / 90px 1.6px repeat-x; animation: streak .55s linear infinite; }
+@keyframes streak { to { background-position: -70px 26%, -60px 76%; } }
+.scene.s3::after { background: radial-gradient(circle, rgba(255,250,235,.9) 1.6px, transparent 2.2px) 0 0 / 23px 30px, radial-gradient(circle, rgba(255,250,235,.7) 1.2px, transparent 1.8px) 11px 14px / 31px 30px; animation: dust 1.9s linear infinite; }
+@keyframes dust { from { background-position: 0 30px, 11px 44px; opacity: 1; } to { background-position: -14px 0, -3px 14px; opacity: 0; } }
+.scene.s4::after { animation: alarm 1.1s ease-in-out infinite; }
+@keyframes alarm { 50% { background: rgba(255,255,255,.32); } }
+@media (prefers-reduced-motion: reduce) { .scene, .scene::after { animation: none; } }
+.bar svg { position: absolute; left: -2px; top: -2px; width: 304px; height: 34px; overflow: visible; z-index: 2; }
+
+/* 主 AI 和贴着它的东西（探头的队友、头顶的手）放在一起，跟着它走 */
+.who.dragging { z-index: 9; }   /* 拖着的小克在最上面，不被终点那道弧挡住 */
+.who { position: absolute; left: 56px; bottom: 70px; transition: left .55s cubic-bezier(.3,1.15,.5,1); z-index: 3; }
+.runner { position: relative; z-index: 2; display: block; cursor: pointer; transform-origin: 50% 100%; touch-action: none; user-select: none; -webkit-user-drag: none; }
+.runner.fast { animation: bob .35s infinite; }
+.runner.mid { animation: bob .7s infinite; }
+.runner.slow { animation: bob 1.8s infinite ease-in-out; }
+@keyframes bob { 0%,100% { translate: 0 0; } 50% { translate: 0 -3px; } }
+.runner.hop { animation: hop .35s ease-out; }   /* 放在 bob 后面，才压得住 */
+@keyframes hop { 40% { translate: 0 -6px; } }
+.runner.nudge { animation: nudge 1.1s ease-in-out 2; }   /* 往右蹭两下：拖我 */
+@keyframes nudge { 30% { translate: 8px 0; } 55% { translate: 0 0; } }
+.runner.swapout { animation: swapout .28s ease-in forwards; }   /* 交出去的缩下去 */
+@keyframes swapout { to { transform: scale(.2) translateY(20px); opacity: 0; } }
+.runner.swapin { animation: swapin .45s cubic-bezier(.3,1.6,.5,1); }   /* 接棒的在同一个地方弹出来 */
+@keyframes swapin { from { transform: scale(.2); opacity: 0; } }
+.runner.drag { animation: none; cursor: grabbing; z-index: 6; filter: drop-shadow(0 4px 0 rgba(38,35,31,.15)); }
+
+/* 小组件 v11：队友一次一个，从主 AI 头后面探出来 */
+/* 队友从主 AI 左后方斜着探出来（10-27 用户：别叠在头顶，太往上） */
+.peeks { position: absolute; right: calc(100% - 26px); bottom: 0; width: 96px; height: 90px; overflow: hidden; pointer-events: none; z-index: 1; }
+.peek { position: absolute; right: 0; bottom: 0; transform-origin: 80% 100%; transform: translateX(115%) rotate(20deg); transition: transform .38s cubic-bezier(.3,1.35,.5,1); }
+.peek.up { transform: translate(-8px, -12px) rotate(-28deg); }
+/* 「负责」小牌：写着当前分身负责什么，右边小数字 = 第几个 / 一共几个分身；点了拉开成分身小列表 */
+/* 「负责」：跟「手」「模型」一样的圆按钮，圈里的小图标按「负责什么」那句话自动挑；圈下面几个小点 = 几个分身，实心 = 当前 */
+.job { position: absolute; z-index: 3; left: 43px; bottom: calc(100% + 4px); width: 30px; height: 30px; border-radius: 50%; border: 1.8px solid #1F1E1C; background: #FFFFFF; display: grid; place-items: center; cursor: pointer; padding: 0; color: #1F1E1C; transform: scale(0); transform-origin: 50% 50%; transition: transform .3s cubic-bezier(.3,1.5,.5,1) .08s; }
+.job svg { width: 18px; height: 18px; }
+.job.none { color: #BDB7AC; }
+.job .lv { position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; }
+.job .lv i { width: 4px; height: 4px; border-radius: 50%; background: #BDB7AC; }
+.job .lv i.on { background: #1F1E1C; }
+.dock.team .job { transform: scale(1); }
+.dock.team .job.hide, .dock.team .model.on ~ .job { transform: scale(0); transition-delay: 0s; }
+.job.pop { animation: jobpop .45s cubic-bezier(.3,1.6,.5,1); }   /* 换了分身，图标轻轻弹一下 */
+@keyframes jobpop { 40% { transform: scale(1.22); } }
+/* 分身小列表：跟模型选择框一样的样子；每行 = 负责什么 · 模型；当前那行有底色，点它 = 改负责；最后一行加分身 */
+.cbox { position: absolute; z-index: 6; left: 43px; bottom: calc(100% + 4px); width: 30px; height: 30px; border: 1.8px solid #1F1E1C; border-radius: 12px; background: #FFFFFF; overflow: hidden; opacity: 0; pointer-events: none; transition: width .34s cubic-bezier(.3,1.2,.5,1), height .34s cubic-bezier(.3,1.2,.5,1), margin-bottom .34s cubic-bezier(.3,1.2,.5,1), opacity .15s; }
+.cbox.on { opacity: 1; pointer-events: auto; }
+.cwin { position: absolute; inset: 4px 3px 4px 4px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C9C2B6 transparent; }
+.cwin div { height: 20px; line-height: 20px; padding: 0 8px; border-radius: 7px; font-family: var(--hand); font-size: 12.5px; color: var(--sub); white-space: nowrap; cursor: pointer; }
+.cwin div i { font: 10.5px system-ui, sans-serif; font-style: normal; color: var(--pencil); margin-left: 6px; }
+.cwin div svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; color: var(--ink); border-radius: 4px; }
+.cwin div svg.pick:hover { background: #EDE5D8; outline: 3px solid #EDE5D8; }   /* 行前的图标能点：点了换图标 */
+/* 换图标：同一个框里变成一排图标 */
+.cwin .icons { height: auto; padding: 3px 2px; display: grid; grid-template-columns: repeat(6, 24px); gap: 3px; cursor: default; }
+.cwin .icons:hover { background: none; }
+.cwin .icons b { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: var(--ink); }
+.cwin .icons b:hover { background: #F3EEE5; }
+.cwin .icons b.on { background: #F6EDE6; outline: 1.5px solid var(--accent); }
+.cwin .icons b svg { width: 15px; height: 15px; margin: 0; }
+.cwin .icons .auto { grid-column: span 6; width: auto; height: 20px; font-size: 12px; color: var(--accent); justify-content: start; padding: 0 4px; }
+.cwin div:hover { background: #F3EEE5; color: var(--ink); }
+.cwin div.sel { background: #F6EDE6; color: var(--ink); }
+.cwin div.add { color: var(--accent); }
+.cwin input { width: 100%; height: 20px; border: 0; outline: 0; background: transparent; font: inherit; color: var(--ink); padding: 0; }   /* 从小克左后方斜着探出来；探头的手 10-27 补全了 */
+/* 头顶：派活的手（连点换 关 / 低 / 中 / 高） */
+.handbtn { position: absolute; z-index: 3; left: -14px; bottom: calc(100% + 4px); width: 30px; height: 30px; border-radius: 50%; border: 1.8px solid #1F1E1C; background: #FFFFFF; display: grid; place-items: center; cursor: pointer; padding: 0; color: #BDB7AC; transform: translateX(-50%) scale(0); transition: transform .3s cubic-bezier(.3,1.5,.5,1); }
+.dock.team .handbtn { transform: translateX(-50%) scale(1); }
+.dock.team .model { transform: scale(1); }
+.handbtn[aria-pressed="true"] { color: #1F1E1C; }
+/* 模型：平时是跟「手」一样的圆按钮；点了，同一个圆拉开成选择框（图标被吃掉），宽度跟着最长的模型名，点一行就换，多了能滚 */
+.model { position: absolute; z-index: 6; left: 7px; bottom: calc(100% + 4px); width: 30px; height: 30px; border: 1.8px solid #1F1E1C; border-radius: 15px; background: #FFFFFF; overflow: hidden; transform: scale(0); transform-origin: 15px 50%; transition: transform .3s cubic-bezier(.3,1.5,.5,1) .04s, width .36s cubic-bezier(.3,1.2,.5,1), height .36s cubic-bezier(.3,1.2,.5,1), margin-bottom .36s cubic-bezier(.3,1.2,.5,1), border-radius .3s; font-family: system-ui, sans-serif; }
+.model.on { border-radius: 12px; }
+.model.left { left: auto; right: calc(100% - 37px); transform-origin: calc(100% - 15px) 15px; }
+.mic { position: absolute; left: 0; top: 0; width: 26.4px; height: 26.4px; border: 0; background: none; padding: 0; display: grid; place-items: center; cursor: pointer; color: #1F1E1C; transition: opacity .12s, transform .2s; }
+.model.left .mic { left: auto; right: 0; }
+.model.on .mic { opacity: 0; transform: scale(.4); pointer-events: none; }
+.mic svg { width: 18px; height: 18px; }
+.mwin { position: absolute; inset: 4px 3px 4px 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C9C2B6 transparent; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.mwin::-webkit-scrollbar { width: 4px; }
+.mwin::-webkit-scrollbar-thumb { background: #C9C2B6; border-radius: 4px; }
+.mwin::-webkit-scrollbar-track { background: transparent; }
+.model.on .mwin { opacity: 1; pointer-events: auto; transition: opacity .2s .14s; }
+.reel div { height: 20px; line-height: 20px; padding: 0 8px; border-radius: 7px; font-size: 12px; color: #6E6A63; white-space: nowrap; cursor: pointer; }
+.reel div:hover { background: #F3EEE5; color: #1F1E1C; }
+.reel div.sel { background: #F6EDE6; color: #1F1E1C; font-weight: 600; }
+.reel div.own { font-style: italic; }
+.reel div.fill { color: var(--accent); }
+.reel input { width: 100%; height: 20px; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; color: #1F1E1C; padding: 0; }
+.tipbox { position: fixed; z-index: 30; max-width: 220px; background: var(--paper); border: 1.6px solid #1F1E1C; border-radius: 12px 10px 13px 11px; padding: 6px 10px; font-family: var(--hand); font-size: 13px; line-height: 1.45; color: var(--ink); box-shadow: 0 3px 0 rgba(38,35,31,.12); pointer-events: none; opacity: 0; transition: opacity .15s; white-space: normal; overflow-wrap: anywhere; }
+.tipbox.on { opacity: 1; }
+.ctx { position: absolute; z-index: 9; background: var(--paper); border: 1.6px solid #1F1E1C; border-radius: 13px 11px 14px 12px; padding: 4px; font-family: var(--hand); font-size: 15px; box-shadow: 0 3px 0 rgba(38,35,31,.12); display: none; }
+.ctx.on { display: block; }
+.ctx button { display: flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; color: var(--ink); padding: 4px 12px 4px 8px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+.ctx svg { width: 18px; height: 16px; color: var(--sub); }
+.ctx b { width: 18px; font: 600 10px system-ui, sans-serif; color: var(--sub); text-align: center; }
+.ctx button:hover { background: #F6EDE6; }
+.handbtn svg { width: 18px; height: 18px; }
+.handbtn .lv { position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; }
+.handbtn .lv i { width: 4px; height: 4px; border-radius: 50%; background: #BDB7AC; }
+.handbtn .lv i.on { background: #1F1E1C; }
+
+/* 小组件 v11：脚下一排小圆圈 = 队友（圈里小头、圈有多满 = 还剩多少额度），最后「＋」= 设置页 */
+.dots { position: absolute; top: 134px; z-index: 4; display: flex; gap: 7px; align-items: center; opacity: 0; pointer-events: none; transition: opacity .2s, left .55s cubic-bezier(.3,1.15,.5,1); }
+.dock.team .dots { opacity: 1; pointer-events: auto; }
+.dot { width: 26px; height: 26px; border: 0; background: none; padding: 0; cursor: grab; position: relative; transition: transform .2s; touch-action: none; }
+.dot svg { width: 26px; height: 26px; display: block; }
+.dot .face { position: absolute; left: 50%; top: 50%; width: 14px; transform: translate(-50%, -46%); pointer-events: none; }
+.dot.on { transform: scale(1.25); }
+/* 终点：能接棒的号排成一道弧，从右边跑进来；拖到谁身上，谁伸手要棒 */
+.fan { position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+.cand { position: absolute; width: 40px; margin: -24px 0 0 -20px; text-align: center; opacity: 0; transform: translate(var(--fx, 0), var(--fy, 40px)) scale(.3); transition: transform .45s cubic-bezier(.3,1.3,.5,1), opacity .25s; pointer-events: none; }
+.fan.on .cand { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
+/* 弧上 = 等着接棒的人：站着的小人（跟脚下「看队友」的小圆圈不一样），脚下一根小额度条 */
+.cman { position: relative; width: 40px; margin: 0 auto; transition: transform .25s cubic-bezier(.3,1.6,.5,1); transform-origin: 50% 100%; }
+.cman img { display: block; margin: 0 auto; }
+.cman .q { display: block; width: 26px; height: 4px; margin: 2px auto 0; border-radius: 3px; background: #E7E0D4; overflow: hidden; }
+.cman .q i { display: block; height: 100%; border-radius: 3px; }
+.cman .q.none { background: repeating-linear-gradient(90deg, #CFC8BC 0 3px, transparent 3px 6px); }
+.cman .pc { display: block; height: 0; overflow: visible; font: 600 9px system-ui, sans-serif; color: var(--sub); opacity: 0; transition: opacity .15s; }   /* 拖到谁身上，它的额度条下面冒小百分比 */
+.cand.reach .cman .pc { opacity: 1; }
+.fan.pick .cand { opacity: .35; }
+.fan.pick .cand.reach { opacity: 1; }
+.cand.reach { z-index: 2; }
+.cand.reach .cman { transform: scale(1.3) rotate(-6deg); }   /* 拖到谁身上，谁放大、身子往小克那边一歪（伸手要棒） */
+.baton { position: absolute; z-index: 8; width: 5px; height: 15px; border: 1.3px solid #1F1E1C; border-radius: 3px; background: linear-gradient(#FFFFFF 0 50%, #D6483A 50%); pointer-events: none; transition: left .45s cubic-bezier(.4,0,.3,1), top .45s cubic-bezier(.2,-0.6,.6,1), transform .45s; }
+.dot .pct { position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; color: var(--sub); white-space: nowrap; display: none; font-family: system-ui, sans-serif; }
+.dot.on .pct { display: block; }
+.dot.drag { cursor: grabbing; transition: none; z-index: 2; }
+.dot.mates { width: 22px; height: 20px; color: var(--sub); cursor: pointer; }
+.dot.mates svg { width: 22px; height: 20px; }
+.dot.mates:hover { color: var(--ink); transform: scale(1.15); }
+
+/* 唯一的一行小字：固定在最下面，只换字（小组件的说明也写在这里） */
+.hint { display: none !important; }   /* 脚下不写字（10-27 用户说了很多遍） */
+.hint-old { position: absolute; left: 18px; right: 18px; bottom: 6px; font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hint.warn { color: var(--warn); }
+.hint.hot { color: var(--hot); }
+/* 学 iPhone「滑动来解锁」：一道光扫过这行字，让人注意到要交棒了 */
+.hint.slide { background: linear-gradient(90deg, var(--hot) 0 44%, #F9DCD3 50%, var(--hot) 56% 100%) 0 0 / 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: slideHint 2.4s linear infinite; }
+@keyframes slideHint { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .hint.slide { animation: none; } }
+.hint b { color: var(--ink); font-weight: normal; }
+.hint a { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; margin-left: 8px; }
+
+/* 浮窗模式（真插件）：透明底，说明和演示控件收起来 */
+body.float { background: transparent; overflow: hidden; }
+body.float .wrap { margin: 0; padding: 160px 12px 0; max-width: none; }
+body.float .dock { overflow: visible; }   /* 拿起小克往上拖不被看不见的框挡住（10-27 用户） */
+body.float .cap, body.float .demo { display: none; }
+body.float .dock { background: transparent; }   /* 没有白底：桌面上只看到小克（10-27 用户：怎么还有白边） */
+/* 小克头顶的小气泡：只在有事要你决定时出现（换号后接对话） */
+/* 新手教学卡：小克右上方一张手绘小卡，大手势图 + 两行字 + 小圆点 */
+.teach { position: absolute; z-index: 12; left: 150px; bottom: 96px; display: none; align-items: center; gap: 10px; padding: 10px 14px 32px 12px; width: 270px; max-width: calc(100vw - 24px); background: var(--paper); border: 1.6px solid #1F1E1C; border-radius: 14px 11px 15px 12px; box-shadow: 2px 3px 0 rgba(38,35,31,.1); cursor: pointer; font-family: var(--hand); }
+.teach.on { display: flex; animation: teachIn .25s ease-out; }
+@keyframes teachIn { from { opacity: 0; transform: translateY(6px); } }
+.teach svg { width: 40px; height: 40px; flex: none; }
+.teach > div { min-width: 0; flex: 1; }
+.teach b { display: block; font-size: 16px; font-weight: normal; color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
+.teach b.hot { color: #D77757; }
+.teach span { display: block; font-size: 13.5px; color: var(--sub); white-space: normal; overflow-wrap: anywhere; }
+.teach i { position: absolute; left: 12px; bottom: 6px; display: flex; gap: 4px; }
+.teach em { width: 5px; height: 5px; border-radius: 50%; background: #D8D0C2; }
+.teach em.on { background: #D77757; }
+.teach .nav { position: absolute; right: 10px; bottom: 3px; display: flex; gap: 10px; }
+.teach .nav button { font: inherit; font-size: 12px; color: var(--pencil); border: 0; background: none; padding: 0; cursor: pointer; }
+.cand::after { content: attr(data-name); position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 4px; white-space: nowrap; font-size: 12.5px; color: var(--ink); background: var(--paper); border: 1px solid #D8D0C2; border-radius: 8px; padding: 1px 7px; opacity: 0; transition: opacity .15s; pointer-events: none; font-family: var(--hand); }
+.cand:hover::after, .cand.reach::after { opacity: 1; }
+.lanetag, .lanetip { position: absolute; white-space: nowrap; pointer-events: none; font-family: var(--hand); color: var(--ink); opacity: 0; transition: opacity .2s; }
+.lanetag, .lanetip { left: 64px; width: 284px; top: 163px; font-size: 13px; }
+.lanetag { text-align: right; }
+.lanetip { text-align: left; color: var(--sub); }
+.dock.open:not(.team):not(.handing) .lanetag { opacity: 1; }
+.dock.open:not(.team):not(.handing) .lanetip.on { opacity: 1; }
+.dock.open:not(.team):not(.handing) .lanetip.on + .lanetag, .lanetag.hide { opacity: 0 !important; }   /* 跑道名字和几点回满（10-28 用户：分不清哪条是本周、哪条是 5 小时） */
+.who.me::after { content: attr(data-name); position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 2px; white-space: nowrap; font-size: 12.5px; color: var(--ink); background: var(--paper); border: 1.4px solid var(--ink); border-radius: 8px; padding: 1px 7px; pointer-events: none; font-family: var(--hand); }   /* 换号时小克脚下标出「当前」是哪个号（10-28 用户：怕忘了这是 Claude 1 还是 2） */   /* 碰到 / 拖到哪个小人，脚下出它的名字 */
+.cand.got .cman { animation: gotHop .5s ease-out; }   /* 接到棒的小人跳一下 */
+@keyframes gotHop { 40% { transform: translateY(-8px) scale(1.12); } }
+.runner.lift { transform: translateY(-6px) scale(1.06) !important; filter: drop-shadow(0 8px 6px rgba(38,35,31,.25)); cursor: grabbing; }   /* 长按拿起来：浮起一点 */
+.fan.on .cand.unavailable, .fan.pick .cand.unavailable.reach { opacity: .35; }
+.ask { z-index: 10; position: absolute; left: -8px; bottom: calc(100% + 6px); display: none; white-space: normal; overflow-wrap: anywhere; max-width: calc(100vw - 16px); max-height: 130px; overflow-y: auto; font-size: 13px; color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink); border-radius: 12px 10px 13px 9px; padding: 5px 10px; box-shadow: 2px 3px 0 rgba(38,35,31,.08); }
+.ask.on { display: block; }
+.ask .message { max-height: 86px; overflow-y: auto; }
+.ask .bubble-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.ask button { white-space: nowrap; position: sticky; bottom: 0; background: var(--paper) !important; font: inherit; background: none; border: 0; padding: 0 0 0 8px; cursor: pointer; color: var(--accent); }
+.ask button.no { color: var(--pencil); }
+/* 演示控件：跟组件分开，正式版没有 */
+.demo { margin-top: 56px; padding: 12px 14px; background: #E2DDD3; border-radius: 10px; font-size: 13px; color: var(--pencil); font-family: system-ui, sans-serif; }
+.cap { font-size: 12px; color: var(--pencil); margin: 0 0 6px 4px; line-height: 1.6; }
+.demo label { display: flex; align-items: center; gap: 10px; margin-top: 6px; color: var(--sub); }
+.demo input[type=range] { flex: 1; accent-color: var(--accent); }
+.demo button { font: inherit; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="cap">↓ 这就是界面。碰小克（停半秒）= 看队友；点小克 = 看跑道；按住小克一拖 = 能接棒的队友围着它排成一道弧，拖到谁身上交给谁</div>
+  <div class="dock" id="dock">
+    <div class="stage" id="stage">
+      <div class="bar" id="bar">
+        <div class="clip"><div class="scene s0" id="scene"></div><div class="days" id="days"></div></div>
+        <svg viewBox="0 0 304 34" aria-hidden="true"><path d="M16 2.5 C100 1.6 190 3.1 274 2.2 L301.6 17.4 L274.3 31.6 C190 32.6 100 31 16.2 31.8 L2.3 17 Z" fill="none" stroke="#26231F" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="who" id="who">
+        <div class="peeks" id="peeks"></div>
+        <img class="runner" id="runner" alt="主 AI" draggable="false">
+        <button class="handbtn" id="handbtn" aria-label="能派活"><svg viewBox="-9 -9 18 18"><path d="M-4.5 7 Q-6.2 1.5 -5.6 -1 L-5.6 -5 Q-4.6 -6.6 -3.6 -5 L-3.6 -1 L-3.4 -7 Q-2.4 -8.6 -1.4 -7 L-1.4 -1 L-1.1 -7.6 Q0 -9.2 1.1 -7.6 L1.1 -1 L1.4 -6.6 Q2.4 -8.2 3.4 -6.6 L3.4 0 Q5.1 -2.1 6.2 -1 Q6.7 0 5.1 2.1 Q3.1 5.8 2 7Z" fill="currentColor"/></svg><span class="lv"><i></i><i></i><i></i></span></button>
+        <div class="model" id="wheel"><button class="mic" id="modelbtn" aria-label="换模型"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.2 4.6 C7.6 4.2 10.6 4.4 13.1 4.7 C13.5 7.6 13.4 10.4 13.2 13.3 C10.4 13.6 7.6 13.5 4.8 13.2 C4.5 10.3 4.6 7.4 5.2 4.6 Z"/><path d="M7.2 2 V4.4 M10.8 2 V4.4 M7.2 13.6 V16 M10.8 13.6 V16 M2 7.2 H4.6 M2 10.8 H4.6 M13.4 7.2 H16 M13.4 10.8 H16"/><path d="M7.4 9.6 C8.2 8.2 9.6 8 10.6 9.2" stroke-width="1.3"/></svg></button><div class="mwin" id="mwin"><div class="reel" id="reel"></div></div></div>
+        <button class="job" id="job" aria-label="负责什么"></button>
+        <div class="cbox" id="cbox"><div class="cwin" id="cwin"></div></div>
+      </div>
+    </div>
+    <div class="dots" id="dots"></div>
+    <div class="fan" id="fan"></div>
+    <div class="hint" id="hint"></div>
+    <div class="ctx" id="ctx"><button id="ctxLang"><b id="langMark">EN</b><span id="langSay">English</span></button><button id="ctxSet"><svg viewBox="0 0 22 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.2 C10 3 11.4 4.6 11.2 6.4 C11 8.3 9.6 9.4 7.9 9.3 C6.1 9.2 4.9 7.8 5 6.1 C5.1 4.4 6.3 3.3 8 3.2 Z"/><path d="M2.4 17.6 C2.6 13.6 5 11.6 8 11.6 C11 11.7 13.3 13.7 13.5 17.4"/><path d="M14.6 4.4 C16.2 4.3 17.4 5.6 17.2 7.1 C17.1 8.6 15.9 9.5 14.6 9.4"/><path d="M15.6 11.9 C18 12.3 19.6 14.2 19.7 17"/></svg><span id="setSay">管理队友</span></button></div>
+  </div>
+
+  <div class="demo">
+    <b>演示控件 · 不是界面的一部分</b>：正式版的额度是自动读的，这里用滑杆假装用掉
+    <label>这 5 小时用了 <input type="range" id="h5" min="0" max="100" value="38"> <span id="h5v"></span></label>
+    <label>这周用了 <input type="range" id="wk" min="0" max="100" value="22"> <span id="wkv"></span></label>
+    <button id="reset">重来</button>
+  </div>
+</div>
+
+<script>
+const SRC = {
+  "小克-站": "{{小克-站}}", "codex-站": "{{codex-站}}", "gemini-站": "{{gemini-站}}", "通用-蓝-站": "{{通用-蓝-站}}", "通用-紫-站": "{{通用-紫-站}}", "通用-绿-站": "{{通用-绿-站}}",
+  "小克-火箭": "{{小克-火箭}}", "小克-滑板": "{{小克-滑板}}", "小克-跑": "{{小克-跑}}", "小克-拖着脚": "{{小克-拖着脚}}", "小克-趴下": "{{小克-趴下}}", "小克-探头": "{{小克-探头}}",
+  "codex-火箭": "{{codex-火箭}}", "codex-滑板": "{{codex-滑板}}", "codex-跑": "{{codex-跑}}", "codex-拖着脚": "{{codex-拖着脚}}", "codex-趴下": "{{codex-趴下}}", "codex-探头": "{{codex-探头}}",
+  "gemini-火箭": "{{gemini-火箭}}", "gemini-滑板": "{{gemini-滑板}}", "gemini-跑": "{{gemini-跑}}", "gemini-拖着脚": "{{gemini-拖着脚}}", "gemini-趴下": "{{gemini-趴下}}", "gemini-探头": "{{gemini-探头}}",
+  "通用-蓝-火箭": "{{通用-蓝-火箭}}", "通用-蓝-滑板": "{{通用-蓝-滑板}}", "通用-蓝-跑": "{{通用-蓝-跑}}", "通用-蓝-拖着脚": "{{通用-蓝-拖着脚}}", "通用-蓝-趴下": "{{通用-蓝-趴下}}", "通用-蓝-探头": "{{通用-蓝-探头}}",
+  "通用-紫-火箭": "{{通用-紫-火箭}}", "通用-紫-滑板": "{{通用-紫-滑板}}", "通用-紫-跑": "{{通用-紫-跑}}", "通用-紫-拖着脚": "{{通用-紫-拖着脚}}", "通用-紫-趴下": "{{通用-紫-趴下}}", "通用-紫-探头": "{{通用-紫-探头}}",
+  "通用-绿-火箭": "{{通用-绿-火箭}}", "通用-绿-滑板": "{{通用-绿-滑板}}", "通用-绿-跑": "{{通用-绿-跑}}", "通用-绿-拖着脚": "{{通用-绿-拖着脚}}", "通用-绿-趴下": "{{通用-绿-趴下}}", "通用-绿-探头": "{{通用-绿-探头}}",
+};
+const SIZE = {{SIZE}};
+const POSE = ["火箭", "滑板", "跑", "拖着脚", "趴下"];
+const BAR_L = 56, TIP = 272;
+const SETTINGS = "../设置页/设置页小样/设置页.html";
+const openSettings = () => window.clawdex ? window.clawdex.openSettings() : window.open(SETTINGS, "_blank");   // 浮窗里：打开手绘设置页小窗   // 设置页唯一入口：小圆圈最后的「＋」
+const LEVEL = () => EN ? ["Off", "Low", "Mid", "High"] : ["关", "低", "中", "高"], LEVEL_SAY = () => EN ? ["", "a few small tasks", "small tasks often", "every small task it can"] : ["", "偶尔交一点", "常常交", "能交的都交"];
+
+// 队友 = 小组件 v11 那一队（顺序也照它），加一个同样能接棒的 Claude 号；left = 还剩多少额度（null = 查不到），task = 手的档位
+let team = [
+  { name: "Codex", look: "codex", fill: "#6E6A63", left: .62, task: 2 },
+  { name: "Gemini", look: "gemini", fill: "#5B86EA", left: .35, task: 1 },
+  { name: "DeepSeek", look: "通用-蓝", fill: "#4A7BF0", left: null, task: 0 },
+  { name: "Kimi", look: "通用-紫", fill: "#8D6BE6", left: .8, task: 0 },
+  { name: "通义千问", look: "通用-绿", fill: "#2FB08F", left: null, task: 1 },
+  { name: "Claude 号 2", look: "小克", fill: "#D77757", left: .9, task: 0 },
+];
+const MODELS = {
+  Codex: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+  Gemini: ["gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash"],
+  DeepSeek: ["deepseek-flash", "deepseek-v4-pro"],
+  Kimi: ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
+  通义千问: ["qwen3.8-max", "qwen3.8-flash", "qwen3.7-plus", "qwen3.7-flash", "qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "qwen3.5-plus", "qwen3.5-flash", "qwen3-coder-flash", "qwen-plus", "qwen-max", "qwen-flash"],
+  Claude: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+};
+MODELS.Antigravity = MODELS.Gemini;
+MODELS.Qwen = MODELS.通义千问;
+const NOW = { Codex: "gpt-6.1-sol", Gemini: "gemini-3.8-flash", DeepSeek: "deepseek-flash", Kimi: "kimi-k3.1-pro", 通义千问: "qwen3.8-flash", Claude: "claude-sonnet-5-5" };
+// 一个号 = 一个队友（额度是号的）；号下面可以有几个分身：同一个号、不同模型、负责不同的活（设置页里多加一行）
+const JOBS = { Codex: [["gpt-6.1-sol", "照方案改代码", 2], ["gpt-6-astra", "修难的 bug", 1]], Gemini: [["gemini-3.8-flash", "查资料、读长文件", 1]], DeepSeek: [["deepseek-flash", "什么小活都行", 0]], Kimi: [["kimi-k3.1-pro", "写中文文案", 0], ["kimi-k2.7-code", "写代码草稿", 0]], 通义千问: [["qwen3.8-flash", "翻译", 1]], "Claude 号 2": [["claude-sonnet-5-5", "什么小活都行", 0]] };
+team.forEach(t => { const k = MODELS[t.name] ? t.name : "Claude"; t.models = MODELS[k]; t.ci = 0; t.clones = (JOBS[t.name] || [[NOW[k], "", 0]]).map(([model, job, task]) => ({ model, job, task, mine: [] })); });
+const C = m => m.clones[m.ci];
+const normalizeModel = t => !t || ["default", "默认", "Default"].includes(t) ? "default" : t;
+let KNOWN = {};
+const modelText = (t, n) => normalizeModel(t) !== "default" ? t : KNOWN[n]?.defaultModel ? L("默认（" + KNOWN[n].defaultModel + "）", "Default (" + KNOWN[n].defaultModel + ")") : L("默认", "Default");
+const JOB_TEXT = [["全部","All"],["照定好的方案写代码、改 bug、跑终端命令","Implement plans, fix bugs, run commands"],["查资料、读很长的文件","Research and read long files"],["写中文文案、读长文","Write Chinese copy and read long text"],["照方案写代码、改 bug；顺手生图","Implement plans, fix bugs, generate images"],["查资料、读长文件、看截图找问题","Research, read long files, review screenshots"],["写小红书文案、改中文稿子","Write Xiaohongshu posts and edit Chinese copy"],["改格式、整理清单这类小杂活","Format text and organize lists"],["中英互译、中文润色","Translate Chinese and English, polish Chinese"],["照方案改代码","Implement the agreed code changes"],["修难的 bug","Fix difficult bugs"],["查资料、读长文件","Research and read long files"],["什么小活都行","Any small task"],["写中文文案","Write Chinese copy"],["写代码草稿","Draft code"],["翻译","Translate"],["照定好的方案写代码、改 bug、写脚本、批量改文件、查资料","Code from an agreed plan, fix bugs, write scripts, batch-edit files, research"],["照方案写代码、改 bug","Implement plans and fix bugs"],["读长文、整理文字","Read long text and organize writing"]];
+let builtinJobs = [];
+const jobText = (t, c) => { if (c?.jobs?.some(j => j.t === t && j.src === "我")) return t; const p = JOB_TEXT.concat(builtinJobs).find(p => p.includes(t)); return p ? L(...p) : t; };
+// 「负责」的小图标：按「负责什么」那句话里的词自动挑，不用另外填（学记账 App 按交易内容自动配分类图标）
+const ICON = {
+  code: '<path d="M6.5 5.5 L2.6 9.1 L6.6 12.6 M11.5 5.4 L15.4 9 L11.4 12.7 M10.3 3.6 L7.8 14.4"/>',
+  look: '<path d="M7.6 2.9 C10.4 2.8 12.4 4.9 12.3 7.6 C12.2 10.3 10.2 12.2 7.5 12.1 C4.9 12 2.9 10.1 3 7.4 C3.1 4.8 5 2.9 7.6 2.9 Z M11.2 11.1 L15.3 15.3"/>',
+  pen: '<path d="M3.4 14.6 L4.2 11.4 L11.9 3.6 C12.6 2.9 13.7 3 14.4 3.7 C15.1 4.4 15.1 5.4 14.4 6.1 L6.7 13.8 Z M10.6 4.9 L13.1 7.4"/>',
+  lang: '<path d="M2.6 4.1 C5 3.8 7.9 3.9 10.2 4.2 C10.4 6 10.3 7.7 10.1 9.3 L6.4 9.4 L4.1 11.3 L4.3 9.4 L2.7 9.3 C2.5 7.6 2.5 5.8 2.6 4.1 Z M11.8 7.3 L15.3 7.4 C15.5 9.1 15.5 10.8 15.3 12.4 L14.1 12.5 L14.2 14.4 L12 12.5 L8.4 12.4 L8.3 11.1"/>',
+  bug: '<path d="M9 5.6 C11.2 5.6 12.4 7.4 12.4 9.9 C12.4 12.6 10.9 14.6 9 14.6 C7.1 14.6 5.6 12.6 5.6 9.9 C5.6 7.4 6.8 5.6 9 5.6 Z M7.3 5.9 C7.2 4.4 8 3.5 9 3.5 C10 3.5 10.8 4.4 10.7 5.9 M9 7.6 L9 14.4 M5.6 9.6 L3 8.8 M12.4 9.6 L15 8.8 M5.8 12.2 L3.4 13.4 M12.2 12.2 L14.6 13.4 M7.4 3.7 L6.2 2.4 M10.6 3.7 L11.8 2.4"/>',
+  test: '<path d="M3.6 3.5 C7.2 3.3 10.8 3.4 14.4 3.6 C14.6 7.2 14.5 10.8 14.3 14.4 C10.8 14.6 7.2 14.5 3.6 14.3 C3.4 10.8 3.4 7.1 3.6 3.5 Z M6 9.2 L8.2 11.5 L12.2 6.4"/>',
+  draw: '<path d="M3.2 3.9 C7.1 3.6 11 3.7 14.8 4 C15 7.3 15 10.6 14.8 14 C11 14.3 7.1 14.2 3.2 14 C3 10.6 3 7.2 3.2 3.9 Z M3.5 12.4 L7.3 8.6 L10.2 11.4 L12.1 9.6 L14.6 12 M11.6 6.2 L11.7 6.4"/>',
+  sheet: '<path d="M3.4 3.6 C7.2 3.4 10.9 3.4 14.6 3.6 C14.8 7.2 14.8 10.8 14.6 14.4 C10.9 14.6 7.2 14.6 3.4 14.4 C3.2 10.8 3.2 7.2 3.4 3.6 Z M3.5 7.4 L14.5 7.4 M3.5 11 L14.5 11 M8 3.6 L8 14.4"/>',
+  folder: '<path d="M2.8 5.2 C2.8 4.4 3.3 4 4 4 L7 4 L8.4 5.6 L14 5.6 C14.7 5.6 15.2 6.1 15.2 6.8 L15.2 13.2 C15.2 13.9 14.7 14.3 14 14.3 L4 14.3 C3.3 14.3 2.8 13.9 2.8 13.2 Z M2.9 8 L15.1 8"/>',
+  sum: '<path d="M3.2 4.6 L4.6 4.6 M7 4.6 L14.8 4.6 M3.2 9 L4.6 9 M7 9 L14.8 9 M3.2 13.4 L4.6 13.4 M7 13.4 L11.6 13.4"/>',
+  web: '<path d="M9 2.8 C12.5 2.8 15.2 5.6 15.2 9 C15.2 12.5 12.5 15.2 9 15.2 C5.5 15.2 2.8 12.5 2.8 9 C2.8 5.6 5.5 2.8 9 2.8 Z M2.9 9 L15.1 9 M9 2.9 C6.9 5.2 6.9 12.8 9 15.1 M9 2.9 C11.1 5.2 11.1 12.8 9 15.1"/>',
+  star: '<path d="M9 2.6 C9.6 6.4 10.6 8.2 15.4 9 C10.6 9.8 9.6 11.6 9 15.4 C8.4 11.6 7.4 9.8 2.6 9 C7.4 8.2 8.4 6.4 9 2.6 Z"/>',
+};
+const ICON_WORDS = [["bug", /bug|修|报错|错误/i], ["test", /测试|test|检查|审查/i], ["code", /代码|改代码|写代码|编程|code|脚本|终端/i], ["lang", /翻译|中英|英文|translate/i], ["sheet", /表格|数据|excel|统计/i], ["sum", /总结|摘要|汇总|笔记/i], ["folder", /整理|文件夹|归档/i], ["web", /网页|浏览|逛|跑腿|下载/i], ["look", /查|搜|资料|读|调研|文件|research/i], ["draw", /画|图|设计|生图|image/i], ["pen", /写|文案|稿|润色|文章|write/i]];
+const ICON_NAME = { code: "代码", look: "查资料", pen: "写东西", lang: "翻译", bug: "修 bug", test: "测试", draw: "画图", sheet: "表格", folder: "整理文件", sum: "总结", web: "网页跑腿", star: "其他" };
+const autoIcon = c => (ICON_WORDS.find(([, re]) => re.test(c.job || "")) || ["star"])[0];
+const iconOf = c => c.icon || autoIcon(c);   // 自己挑过就用自己挑的，没挑过按负责什么自动挑
+const svgKey = (k, cls = "") => `<svg class="${cls}" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
+const svgOf = (c, cls = "") => svgKey(iconOf(c), cls);
+let main = { name: "小克", look: "小克", fill: "#D77757", models: MODELS.Claude, ci: 0, clones: [{ model: "claude-opus-5-5", job: "", task: 0, mine: [] }] };
+const FIRST = { team: team.slice(), main };
+
+let open = false, teamOpen = false, cur = 0, hovering = false, onBar = false, telling = false, lane = null;   // lane = 条上现在是哪条跑道：h5 / wk（null = 自动挑快用完的那条）
+let handed = null, busy = false, endShown = 0;
+const $ = id => document.getElementById(id);
+let EN = false;
+try { EN = localStorage.getItem("clawdex.lang") === "en"; } catch (e) {}   // 上次选的语言（浮窗和设置小窗共用）
+let RESET = { h5: "2:10 后", wk: "周四" };   // 几点回满：小样里是假的，浮窗里用插件给的
+const L = (zh, en) => EN ? en : zh;   // 中 / 英：每句都写两份
+const NAME_EN = { 小克: "Clawd", "Claude 号 2": "Claude #2", 通义千问: "Qwen" };
+let knownNames = {};
+const nm = n => knownNames[n] ? L(knownNames[n].zh, knownNames[n].en) : EN ? (NAME_EN[n] || n) : n;
+const job = $("job"), fan = $("fan"), cbox = $("cbox"), cwin = $("cwin");
+const modelbtn = $("modelbtn"), wheel = $("wheel"), reel = $("reel"), ctx = $("ctx");
+const dock = $("dock"), stage = $("stage"), who = $("who"), runner = $("runner"), peeks = $("peeks"), handbtn = $("handbtn"), dotsEl = $("dots"), hint = $("hint"), scene = $("scene");
+
+let realUsage = null;
+const quotaValue = k => realUsage ? realUsage[k === "h5" ? "five" : "week"] ?? null : +$(k).value;
+const used = () => Math.max(quotaValue("h5") ?? 0, quotaValue("wk") ?? 0);
+let stateAccount = {ai:"Claude", label:"Claude"};
+const pendingClones = new Map();
+let pendingOrder = null;
+const currentAccount = () => main.name === "小克" ? stateAccount.label : main.name;
+function publishCurrent() { try { localStorage.setItem("clawdex.current", JSON.stringify({name: currentAccount(), ai: main.name === "小克" ? "Claude" : main.acct || main.name})); } catch(e) {} }
+let refreshQuota = () => {};
+let showUndo = () => {};
+const stg = u => u < 30 ? 0 : u < 60 ? 1 : u < 85 ? 2 : u < 95 ? 3 : 4;
+const quotaSay = m => m.left == null ? L("额度查不到", "quota unknown") : L(`额度还剩 ${Math.round(m.left * 100)}%`, `${Math.round(m.left * 100)}% quota left`);
+const ring = m => m.left == null
+  ? `<svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7.8" fill="#FFFFFF" stroke="#B4AEA4" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg><img class="face" alt="" src="${SRC[m.look + "-探头"]}"><span class="pct">${L("查不到", "n/a")}</span>`
+  : `<svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7.8" fill="#FFFFFF" stroke="#E4DED3" stroke-width="1.8"/><circle cx="9" cy="9" r="7.8" fill="none" stroke="${m.fill}" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="${(49.0 * m.left).toFixed(1)} 50" transform="rotate(-90 9 9)"/></svg><img class="face" alt="" src="${SRC[m.look + "-探头"]}"><span class="pct">${Math.round(m.left * 100)}%</span>`;
+
+// 小组件：每个队友一个探头形象 + 一个小圆圈
+function buildTeam() {
+  peeks.innerHTML = ""; dotsEl.innerHTML = "";
+  team.forEach(m => {
+    m.peeks = m.clones.map((c, k) => {   // 每个分身一个探头，叠成一叠
+      const im = document.createElement("img");
+      im.className = "peek"; im.alt = ""; im.src = SRC[m.look + "-探头"];
+      im.style.width = SIZE[m.look + "-探头"][0] + "px";
+      im.addEventListener("click", e => { e.stopPropagation(); if (m.ci !== k) { m.ci = k; closeWheel(); hop(); sayClone(); render(); } });
+      im.addEventListener("mouseenter", () => { if (m.ci !== k) tell(L(`<b>${nm(m.name)}</b> 的分身 · ${jobText(c.job, c) || "没写负责什么"} · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))} · 点了换到前面`, `<b>${nm(m.name)}</b> clone · ${jobText(c.job, c) || "no job yet"} · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))} · click to bring forward`)); });
+      im.addEventListener("mouseleave", () => hideTip());
+      peeks.append(im); return im;
+    });
+    const d = document.createElement("button");
+    d.className = "dot"; d.innerHTML = ring(m);
+    d.setAttribute("aria-label", `${nm(m.name)}, ${quotaSay(m)}`);
+    d.addEventListener("mouseenter", () => { if (!drag && !rdrag) tell(`<b>${nm(m.name)}</b> · ${quotaSay(m)}${m.clones.length > 1 ? L(` · ${m.clones.length} 个分身`, ` · ${m.clones.length} clones`) : ""} · ${L("拖着换顺序", "drag to reorder")}`); });
+    d.addEventListener("mouseleave", hideTip);
+    d.addEventListener("pointerdown", e => startDrag(e, m));
+    m.dot = d; dotsEl.append(d);
+  });
+  const add = document.createElement("button");
+  add.className = "dot mates"; add.setAttribute("aria-label", L("管理队友", "Manage teammates"));
+  add.innerHTML = `<svg viewBox="0 0 22 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.2 C10 3 11.4 4.6 11.2 6.4 C11 8.3 9.6 9.4 7.9 9.3 C6.1 9.2 4.9 7.8 5 6.1 C5.1 4.4 6.3 3.3 8 3.2 Z"/><path d="M2.4 17.6 C2.6 13.6 5 11.6 8 11.6 C11 11.7 13.3 13.7 13.5 17.4"/><path d="M14.6 4.4 C16.2 4.3 17.4 5.6 17.2 7.1 C17.1 8.6 15.9 9.5 14.6 9.4"/><path d="M15.6 11.9 C18 12.3 19.6 14.2 19.7 17"/></svg>`;
+  add.addEventListener("mouseenter", () => tell(L("<b>管理队友</b> · 加人、离队、每人负责什么", "<b>Manage teammates</b> · add, remove, what each one does")));
+  add.addEventListener("mouseleave", hideTip);
+  add.addEventListener("click", e => { e.stopPropagation(); openSettings(); });
+  dotsEl.append(add);
+}
+
+function setTeam(v) {
+  if (v === teamOpen) return;
+  teamOpen = v;
+  if (v) hop();
+  else { closeWheel(); closeClones(); hideTip(true); }
+  render();
+}
+function sayJob() { job.classList.remove("pop"); void job.offsetWidth; job.classList.add("pop"); }   // 换了分身 / 换了号：图标弹一下
+function show(i) {
+  if (!team.length) return;
+  const n = (i + team.length) % team.length;
+  if (n === cur) return;   // 只有一个队友 / 没换人：什么都不动（10-27 用户：滚的时候右上角那个图标一直抖）
+  closeWheel(); closeClones(); cur = n; hop(); render(); sayJob(); sayClone();
+}
+function autoRelay() { if (!busy && !rdrag && used() >= 100) openFan(); }
+function nudge() { runner.classList.remove("nudge"); void runner.offsetWidth; runner.classList.add("nudge"); }
+function hop() { runner.classList.remove("hop"); void runner.offsetWidth; runner.classList.add("hop"); }
+
+function render() {
+  const u = Math.min(used(), 100), h5 = quotaValue("h5"), wk = quotaValue("wk");
+  const ln = lane || (wk > h5 ? "wk" : "h5"), lv = ln === "wk" ? wk : h5;   // 没点过 = 自动显示快用完的那条
+  const s = stg(Math.min(lv ?? 0, 100));   // 姿势、场景跟着条上这条跑道（10-27 用户：切到这周，小克也要跟着变）；提醒和交棒照旧看更快用完的那个
+  $("h5v").textContent = h5 + "%"; $("wkv").textContent = wk + "%";
+  // 用完了：小组件自己冒出来，等着拖（只冒一次，收起来就不再强行打开）
+  const lvl = u >= 100 ? 2 : u >= 95 ? 1 : 0;
+  if (lvl > endShown && !handed && !busy) { endShown = lvl; nudge(); if (lvl === 2) setTimeout(autoRelay, 1500); }   // 快到头 / 用完：小克自己往右蹭两下（像在说「拖我」），脚下字一道光扫过
+  if (u < 95) endShown = 0;
+  dock.classList.toggle("open", open);
+  dock.classList.toggle("team", teamOpen);
+
+  const key = main.look + "-" + POSE[s];
+  runner.src = SRC[key]; runner.style.width = SIZE[key][0] + "px";
+  runner.classList.remove("fast", "mid", "slow");
+  runner.classList.add(s <= 1 ? "fast" : s === 2 ? "mid" : "slow");
+  scene.className = "scene s" + s;
+  $("bar").classList.toggle("wk", ln === "wk");
+  const head = Math.min(lv ?? 0, 100) / 100 * TIP, w = SIZE[key][0];   // 条走过的那段 = 这条跑道用了多少
+  scene.style.width = head + "px";
+  const left = open ? BAR_L + Math.max(0, Math.min(head - w * .6, TIP - w + 6)) : BAR_L;   // 跑道开着 = 站在走过那段的最前头
+  if (!drag) who.style.left = left + "px";
+
+  // 小组件：当前那个队友探头、手的档位、小圆圈排在脚下（不出框）
+  const m = team[cur];
+  team.forEach((t, k) => {
+    t.dot.classList.toggle("on", k === cur);
+    t.peeks.forEach((im, j) => im.classList.toggle("up", teamOpen && k === cur && j === t.ci));   // 只露当前那个分身
+  });
+  [job, handbtn, wheel, cbox].forEach(el => { el.style.display = m ? "" : "none"; });
+  if (m) {
+  job.innerHTML = svgOf(C(m)) + (m.clones.length > 1 ? `<span class="lv">${m.clones.map((c, k) => `<i class="${k === m.ci ? "on" : ""}"></i>`).join("")}</span>` : "");   // 图标 = 它负责什么；小点 = 几个分身，实心 = 当前
+  job.classList.toggle("none", !C(m).job);
+  who.style.setProperty("--ph", (SIZE[m.look + "-探头"][1] - 6) + "px");
+  handbtn.setAttribute("aria-pressed", C(m).task > 0);
+  handbtn.querySelectorAll(".lv i").forEach((d, k) => d.classList.toggle("on", k < C(m).task));
+  }
+  const rowW = dotsEl.offsetWidth || 220, dockW = dock.clientWidth;
+  dotsEl.style.left = Math.max(10, Math.min(left + w / 2 - rowW / 2, dockW - rowW - 10)) + "px";
+
+  if (!telling) {
+    hint.className = "hint";
+    const nx = team[0]?.name || "";
+    if (handed) {
+      hint.textContent = L(`已交给 ${nm(main.name)} 接着做 · 想回来，在 Claude 里接着说就行`, `Handed to ${nm(main.name)} · to come back, just keep talking in Claude`);   // 交出去以后没法真撤销（新对话已经开了），照 Gmail：只在发出前能撤销
+    } else if (u >= 100) { hint.className = "hint hot slide"; hint.textContent = L(`${nm(main.name)} 跑不动了 · 按住它一拖，交给下一棒`, `${nm(main.name)} is out · press and drag it to hand off`); }
+    else if (u >= 95) { hint.className = "hint hot slide"; hint.textContent = L(`快到头了 · 按住${nm(main.name)}一拖，交给下一棒`, `Almost out · press and drag ${nm(main.name)} to hand off`); }
+    else if (u >= 85) { hint.className = "hint warn"; hint.textContent = L(`额度快用完了，到时交给 ${nm(nx)}`, `Running low — ${nm(nx)} is next`); }
+    else if (onBar) hint.textContent = ln === "wk" ? L(`这周的跑道：用了 ${wk}% · ${RESET.wk}回满 · 点条换成这 5 小时`, `This week: ${wk ?? "unknown"}% used · resets ${RESET.wk} · click for 5-hour`) : L(`这 5 小时的跑道：用了 ${h5}% · ${RESET.h5}回满 · 点条换成这周`, `This 5 hours: ${h5 ?? "unknown"}% used · resets ${RESET.h5} · click for week`);
+    else if (hovering || open) hint.textContent = L(`${nm(main.name)} 还剩 ${100 - u}% · `, `${nm(main.name)}: ${100 - u}% left · `) + (realUsage?.source === "claude-history" ? L("回满时间：查不到", "Reset time: unknown") : L(`${h5 >= wk ? RESET.h5 : RESET.wk}回满`, `resets ${h5 >= wk ? RESET.h5 : RESET.wk}`));
+    else hint.textContent = "";
+  }
+}
+document.addEventListener("pointerdown", e => { if (window.clawdex?.focus && dock.contains(e.target)) window.clawdex.focus(); }, true);   // 点到小克这些东西时让浮窗拿焦点，切走时才收得到 blur
+let tipEl = null;
+document.addEventListener("pointerover", e => { const el = e.target.closest ? e.target.closest("button, .dot, #runner, #bar, .cand") : null; if (el !== tipEl && typeof tipbox !== "undefined") tipbox.classList.remove("on"); tipEl = el; });   // 移到别的东西上，旧的说明框先收起   // 记住鼠标停在哪个按钮上
+const tipbox = document.createElement("div"); tipbox.className = "tipbox"; document.body.append(tipbox);
+function showTipBox(el, html) {   // 跟右键菜单同样的米白底黑描边小框，放在按钮上方，放不下就放下方（10-28 用户：系统黑底提示太难看）
+  if (!el || !el.isConnected) return;
+  tipbox.innerHTML = html; tipbox.classList.add("on");
+  const r = el.getBoundingClientRect(), w = tipbox.offsetWidth, h = tipbox.offsetHeight;
+  tipbox.style.left = Math.max(4, Math.min(innerWidth - w - 4, r.left + r.width / 2 - w / 2)) + "px";
+  tipbox.style.top = (r.top - h - 8 >= 4 ? r.top - h - 8 : Math.min(innerHeight - h - 4, r.bottom + 8)) + "px";
+}
+function tell(html) { telling = true; hint.className = "hint"; hint.innerHTML = html; showTipBox(tipEl, html); }   // 脚下那行字藏着（10-27 用户：脚下不写字），说明改成按钮自己的悬停小提示（10-28 Codex 查出：手、模型、负责的说明看不见）
+function hideTip(quiet) { telling = false; tipbox.classList.remove("on"); if (!quiet) render(); }
+
+// 交棒：跑道不动，只换人——交出去的那个缩下去，接棒的在同一个地方弹出来，条照它的额度走到它的位置；交出去的那个排到小圆圈最后
+function hand(m) {
+  if (busy) return;
+  handed = { main, team: team.slice(), usage: realUsage && {...realUsage}, h5: $("h5").value, wk: $("wk").value, reset: {...RESET} };
+  busy = true; teamOpen = false; telling = false; render();
+  runner.classList.add("swapout");
+  setTimeout(() => {
+    const old = main, u = used(), at = team.indexOf(m);
+    team = team.filter(t => t !== m);
+    team.push({ name: old.name, look: old.look, fill: old.fill, left: Math.max(0, 1 - u / 100), models: old.models, ci: old.ci, clones: old.clones });
+    main = { ...m, back: m, at };   // 记住它原来排第几，撤销时放回去
+    cur = 0;
+    realUsage = m.usage || { five: null, week: null, fiveAt: null, weekAt: null };
+    publishCurrent(); refreshQuota(); showUndo();
+    buildTeam();
+    runner.classList.remove("swapout"); runner.classList.add("swapin"); render();
+    setTimeout(() => { runner.classList.remove("swapin"); busy = false; render(); }, 450);   // 接棒的弹出来
+  }, 280);
+}
+function undo() {
+  if (!handed || busy) return;
+  const back = handed;
+  main = back.main; team = back.team; realUsage = back.usage;
+  $("h5").value = back.h5; $("wk").value = back.wk; RESET = back.reset;
+  handed = null; cur = 0; endShown = 2;
+  publishCurrent(); buildTeam(); refreshQuota(); render();
+}
+
+// 拖小圆圈换顺序（小组件 v11 原样）；没拖动 = 点了 = 换成它探头
+let drag = null;
+function startDrag(e, m) {
+  e.stopPropagation(); e.preventDefault();
+  drag = { m, x0: e.clientX, moved: false };
+  m.dot.setPointerCapture(e.pointerId);
+}
+dotsEl.addEventListener("pointermove", e => {
+  if (!drag) return;
+  if (Math.abs(e.clientX - drag.x0) > 4) drag.moved = true;
+  if (!drag.moved) return;
+  hideTip(true); drag.m.dot.classList.add("drag");
+  const dots = team.map(t => t.dot), i = team.indexOf(drag.m);
+  const target = dots.findIndex(d => { const b = d.getBoundingClientRect(); return e.clientX < b.left + b.width / 2; });
+  const j = target === -1 ? team.length - 1 : (target > i ? target - 1 : target);
+  if (j !== i) {
+    const keep = team[cur];
+    team.splice(i, 1); team.splice(j, 0, drag.m);
+    team.forEach(t => dotsEl.insertBefore(t.dot, dotsEl.lastChild));
+    cur = team.indexOf(keep); drag.x0 = e.clientX;
+  }
+});
+dotsEl.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const { m, moved } = drag; m.dot.classList.remove("drag"); drag = null;
+  if (moved) { saveWork(); if (!window.clawdex) tell(`<b>${L("顺序：", "Order: ")}</b>${team.map(t => nm(t.name)).join(" → ")} · ${L("一件活好几个 AI 都能接时，排前面的先接（设置页「委派」选了「自定顺序」才用）", "used when Delegate is set to Custom order")}`); }
+  else show(team.indexOf(m));
+});
+
+// 手：能派活，连点换档（小组件 v11 原样）
+handbtn.addEventListener("click", e => {
+  e.stopPropagation();
+  if (!team.length) return;
+  const c = C(team[cur]); c.task = (c.task + 1) % 4; sayHand(); render();
+});
+handbtn.addEventListener("mouseenter", sayHand);
+handbtn.addEventListener("mouseleave", () => hideTip());
+function sayHand() { if (!team.length) return;
+  const m = team[cur], c = C(m);
+  tell(c.task ? L(`<b>能派活：${LEVEL()[c.task]}</b> · 把照做的小活${LEVEL_SAY()[c.task]}给 ${nm(m.name)}${c.job ? "（" + c.job + "）" : ""}（连点换档）`, `<b>Delegate: ${LEVEL()[c.task]}</b> · give ${nm(m.name)} ${LEVEL_SAY()[c.task]} (click to change)`) : L(`<b>能派活：关</b> · 不把活交给 ${nm(m.name)}（点一下打开）`, `<b>Delegate: Off</b> · nothing goes to ${nm(m.name)} (click to turn on)`));
+}
+
+// 模型快捷：点圆按钮，同一个圆拉开成选择框（图标被吃掉）；宽度跟着最长的模型名；点一行就换，多了能滚；最后一行「自己填…」，回车 = 用它并存下来
+const FILL = "\u0000fill", ROW = 20, SHOW = 3;   // 只露 3 行：现在用的在中间，上下各一行
+let wItems = [];
+const measure = document.createElement("canvas").getContext("2d");
+function wheelItems(m) { return [...m.models, ...C(m).mine, FILL]; }
+function boxSize() {   // 量最长那个名字有多宽，框就拉多宽
+  measure.font = "600 12px system-ui, sans-serif";
+  const w = Math.max(...wItems.map(t => measure.measureText(modelText(t, team[cur].acct || team[cur].name)).width));
+  return { w: Math.round(Math.min(240, Math.max(110, w + 32))), h: Math.min(wItems.length, SHOW) * ROW + 11.6 };
+}
+function drawReel(typing) {
+  const m = C(team[cur]);
+  reel.innerHTML = "";
+  wItems.forEach(t => {
+    const d = document.createElement("div"), isTyping = typing && t === FILL;
+    if (isTyping) d.innerHTML = `<input id="own" placeholder="${L("打模型名字，回车", "type a model, Enter")}">`; else d.textContent = t === FILL ? L("自己填…", "Type my own…") : modelText(t, team[cur].acct || team[cur].name);
+    d.className = (t === m.model ? "sel " : "") + (t === FILL ? "fill" : m.mine.includes(t) ? "own" : "");
+    d.onclick = e => { e.stopPropagation(); if (t === FILL) { if (!isTyping) startOwn(); } else pick(t); };
+    reel.append(d);
+  });
+  if (typing) { const i = $("own"); const go = () => $("mwin").scrollTop = i.parentElement.offsetTop - ROW; go(); setTimeout(go, 400);   /* 框还在拉开时也滚得到 */ i.focus(); i.onkeydown = ownKey; }
+}
+function openWheel() { if (!team.length) return;
+  closeClones();
+  wItems = wheelItems(team[cur]);
+  const { w, h } = boxSize();
+  const r = who.getBoundingClientRect(), d = dock.getBoundingClientRect();
+  wheel.classList.toggle("left", r.left + r.width / 2 + w > d.right - 6);   // 右边放不下就往左拉开
+  wheel.style.width = w + "px"; wheel.style.height = h + "px"; wheel.style.marginBottom = (30 - h) / 2 + "px";   // 以按钮为中心上下各拉开一点，不往下遮东西
+  wheel.classList.add("on"); drawReel();
+  const sel = reel.querySelector(".sel"); if (sel) $("mwin").scrollTop = sel.offsetTop - ROW;
+  sayModel();
+}
+function closeWheel() { wheel.classList.remove("on"); wheel.style.width = wheel.style.height = wheel.style.marginBottom = ""; }
+function pick(t) { const m = team[cur]; C(m).model = t; drawReel(); tell(L(`<b>${nm(m.name)}</b> 换成了 ${modelText(t, m.acct || m.name)}`, `<b>${nm(m.name)}</b> now uses ${modelText(t, m.acct || m.name)}`)); setTimeout(closeWheel, 160); }
+function sayModel() { if (!team.length) return; const m = team[cur]; tell(L(`<b>${nm(m.name)}</b> 现在用 ${modelText(C(m).model, m.acct || (m.name === "小克" ? "Claude" : m.name))} · 点一行就换`, `<b>${nm(m.name)}</b> uses ${modelText(C(m).model, m.acct || (m.name === "小克" ? "Claude" : m.name))} · click a row to switch`)); }
+function sayClone() { if (!team.length) return; const m = team[cur], c = C(m); tell(L(`<b>${nm(m.name)}</b>：${jobText(c.job, c) || "没写负责什么"} · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))}`, `<b>${nm(m.name)}</b>: ${jobText(c.job, c) || "no job yet"} · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))}`)); }
+function startOwn() { drawReel(true); tell(L("<b>自己填</b> · 打完按回车；Esc 不填了", "<b>Your own</b> · press Enter when done; Esc to cancel")); }
+function ownKey(e) {
+  e.stopPropagation();
+  const m = team[cur];
+  if (e.key === "Escape") { drawReel(); sayModel(); }
+  if (e.key === "Enter") {
+    const v = e.target.value.trim();
+    if (!v) { drawReel(); return; }
+    const c = C(m);
+    if (!m.models.includes(v) && !c.mine.includes(v)) c.mine.push(v);
+    c.model = v; tell(L(`<b>存好了</b> · ${nm(m.name)} 现在用 ${v}，下次列表里就有它`, `<b>Saved</b> · ${nm(m.name)} now uses ${v}; it stays in the list`));
+    setTimeout(closeWheel, 160);
+  }
+}
+modelbtn.addEventListener("click", e => { e.stopPropagation(); openWheel(); });
+modelbtn.addEventListener("mouseenter", () => { if (!team.length) return; if (!wheel.classList.contains("on")) tell(L(`<b>模型</b> · ${nm(team[cur].name)} 现在用 ${modelText(C(team[cur]).model, team[cur].acct || team[cur].name)} · 点了换`, `<b>Model</b> · ${nm(team[cur].name)} uses ${modelText(C(team[cur]).model, team[cur].acct || team[cur].name)} · click to change`)); });
+modelbtn.addEventListener("mouseleave", () => { if (!wheel.classList.contains("on")) hideTip(); });
+wheel.addEventListener("wheel", e => e.stopPropagation(), { passive: true });   // 在框里滚 = 滚列表，不换队友
+wheel.addEventListener("click", e => e.stopPropagation());
+document.addEventListener("pointerdown", e => { if (!wheel.contains(e.target)) closeWheel(); if (!ctx.contains(e.target)) ctx.classList.remove("on"); }, true);
+
+// 「负责」小牌 = 分身：点了拉开成小列表（跟模型选择框一样）；点一行 = 换成这个分身；点当前那行 = 改它负责什么；最后一行 = 加分身
+const CROW = 20;
+function cloneRows(typing) { if (!team.length) return;
+  const m = team[cur];
+  cwin.innerHTML = "";
+  m.clones.forEach((c, k) => {
+    const d = document.createElement("div");
+    d.className = k === m.ci ? "sel" : "";
+    if (typing && k === m.ci) {
+      d.innerHTML = `<input id="cjob" placeholder="${L("写它负责什么，回车", "what it does, Enter")}">`;
+    } else {
+      d.innerHTML = `${svgOf(c, "pick")}${jobText(c.job, c) || `<span style="color:var(--faint)">${L("还没写负责什么", "no job yet")}</span>`}<i>${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))}</i>`;
+    }
+    d.onclick = e => {
+      e.stopPropagation();
+      if (e.target.closest("svg.pick")) { pickIcon(k); return; }   // 点行前的图标 = 换图标
+      if (k !== m.ci) { m.ci = k; hop(); sayJob(); tell(L(`现在是：<b>${jobText(c.job, c) || "这个分身"}</b> · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))}`, `Now: <b>${jobText(c.job, c) || "this clone"}</b> · ${modelText(c.model, m.acct || (m.name === "小克" ? "Claude" : m.name))}`)); cloneRows(); render(); setTimeout(closeClones, 220); }
+      else if (!typing) cloneRows(true);
+    };
+    cwin.append(d);
+  });
+  const add = document.createElement("div");
+  add.className = "add"; add.textContent = L("＋ 加分身", "＋ Add clone");
+  add.onclick = e => { e.stopPropagation(); let n=1; while(m.clones.some((c,i)=>(c.id || m.name+"#"+(i+1))===m.name+"#"+n) || pendingClones.has(m.name+"#"+n))n++;
+    if (window.clawdex) {
+      const mate = {id:m.name+"#"+n, name:m.name, model:normalizeModel(C(m).model), job:"", level:"关", models:[], jobs:[]};
+      pendingClones.set(mate.id, mate.name);
+      window.clawdex.send({type:"mate-add", mate});
+      tell(L("正在保存分身…", "Saving clone…")); return;
+    } m.clones.push({ id:m.name+"#"+n, model: C(m).model, job: "", task: 0, mine: [] }); m.ci = m.clones.length - 1; render(); sizeClones(); cloneRows(true); tell(L("<b>加了一个分身</b> · 写它负责什么，回车；模型用头顶的模型按钮换", "<b>Clone added</b> · type what it does, Enter; change its model with the model button")); };
+  cwin.append(add);
+  if (typing) {
+    const i = $("cjob"); i.value = C(m).job; i.focus();
+    i.onclick = e => e.stopPropagation();
+    i.onkeydown = e => {
+      e.stopPropagation();
+      if (e.key === "Enter") { const v = i.value; C(m).job = v; C(m).jobs ||= []; if (!C(m).jobs.some(j => j.t === v && j.src === "我")) C(m).jobs.push({t:v,src:"我"}); tell(v ? L(`<b>存好了</b> · 图标${C(m).icon ? "" : "自动换成「" + ICON_NAME[autoIcon(C(m))] + "」"} · 不对就点这一行前面的图标换`, `<b>Saved</b> · icon picked for you · click the icon in this row to change it`) : L("清空了", "Cleared")); cloneRows(); render(); sayJob(); }
+      if (e.key === "Escape") { cloneRows(); hideTip(); }
+    };
+  }
+  const sel = cwin.querySelector(".sel"); if (sel) cwin.scrollTop = sel.offsetTop - CROW;
+}
+function pickIcon(k) {   // 同一个框里换成一排图标：点一个就定下；「自动」= 交回给负责什么去挑
+  const m = team[cur], c = m.clones[k];
+  cwin.innerHTML = "";
+  const g = document.createElement("div"); g.className = "icons";
+  Object.keys(ICON).forEach(key => {
+    const b = document.createElement("b");
+    b.className = iconOf(c) === key ? "on" : ""; b.innerHTML = svgKey(key); b.title = L(ICON_NAME[key], ({code:"Code",look:"Research",pen:"Writing",lang:"Translation",bug:"Fix bugs",test:"Testing",draw:"Drawing",sheet:"Spreadsheets",folder:"Organize files",sum:"Summaries",web:"Web tasks",star:"Other"})[key]);
+    b.onmouseenter = () => tell(L(`<b>${ICON_NAME[key]}</b>`, `<b>${key}</b>`));
+    b.onclick = e => { e.stopPropagation(); c.icon = key; tell(L(`图标换成了「${ICON_NAME[key]}」`, `Icon set`)); render(); sayJob(); sizeClones(); cloneRows(); };
+    g.append(b);
+  });
+  const auto = document.createElement("b"); auto.className = "auto"; auto.textContent = L("↺ 自动", "↺ Auto"); auto.onmouseenter = () => tell(L(`<b>自动</b> · 按负责什么挑，现在会挑「${ICON_NAME[autoIcon(c)]}」`, `<b>Auto</b> · picked from what it does`));
+  auto.onclick = e => { e.stopPropagation(); delete c.icon; render(); sayJob(); sizeClones(); cloneRows(); };
+  g.append(auto); cwin.append(g);
+  cbox.style.width = "176px"; cbox.style.height = "86px"; cbox.style.marginBottom = (30 - 86) / 2 + "px";   // 6 个一排正好放下，不左右滚；多了上下滚
+  tell(L("<b>换图标</b> · 点一个就定下", "<b>Pick an icon</b>"));
+}
+function sizeClones() { if (!team.length) return;   // 量最长那一行，框就拉多宽；只露 3 行，以小牌为中心上下各拉开一点
+  const m = team[cur];
+  measure.font = "12.5px KaiTi, serif";
+  const w = Math.max(...m.clones.map(c => measure.measureText(c.job || "还没写负责什么").width + measure.measureText(c.model).width * .85 + 27), 90);
+  const h = Math.min(m.clones.length + 1, 3) * CROW + 11.6;
+  cbox.style.width = Math.round(Math.min(250, w + 30)) + "px"; cbox.style.height = h + "px"; cbox.style.marginBottom = (30 - h) / 2 + "px";
+}
+function openClones() { if (!team.length) return; closeWheel(); sizeClones(); cbox.classList.add("on"); job.classList.add("hide"); cloneRows(); tell(L("<b>分身</b> · 点一行换人；点有底色那行改它负责什么", "<b>Clones</b> · click a row to switch; click the highlighted one to edit")); }
+function closeClones() { if (!cbox.classList.contains("on")) return; cbox.classList.remove("on"); job.classList.remove("hide"); cbox.style.width = cbox.style.height = cbox.style.marginBottom = ""; }
+job.addEventListener("click", e => { e.stopPropagation(); openClones(); });
+job.addEventListener("mouseenter", () => { if (!team.length) return; const m = team[cur]; tell(L(`<b>负责：${jobText(C(m).job, C(m)) || "还没写"}</b> · ${modelText(C(m).model, m.acct || (m.name === "小克" ? "Claude" : m.name))}${m.clones.length > 1 ? ` · 第 ${m.ci + 1} 个分身，共 ${m.clones.length} 个` : ""} · 点了换 / 改 / 加分身`, `<b>${jobText(C(m).job, C(m)) || "no job yet"}</b> · ${modelText(C(m).model, m.acct || (m.name === "小克" ? "Claude" : m.name))}${m.clones.length > 1 ? ` · clone ${m.ci + 1} of ${m.clones.length}` : ""} · click to switch / edit`)); });
+job.addEventListener("mouseleave", () => { if (!cbox.classList.contains("on")) hideTip(); });
+cbox.addEventListener("click", e => e.stopPropagation());
+cbox.addEventListener("wheel", e => e.stopPropagation(), { passive: true });
+document.addEventListener("pointerdown", e => { if (!cbox.contains(e.target) && !job.contains(e.target)) closeClones(); }, true);
+window.addEventListener("blur", () => { closeWheel(); closeClones(); closeFan(); ctx.classList.remove("on"); setTeam(false); if (open) { open = false; lane = null; render(); } });   // 点到浮窗外面（桌面、别的程序）浮窗收不到点击，只收到「失去焦点」：刚展开的那块收起来（10-28 用户：加了分身点别处退不了）
+
+// 右键主 AI：小菜单里「管理队友」（跟苹果桌面小组件一样，右键进编辑）
+runner.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const d = dock.getBoundingClientRect();
+  ctx.style.left = Math.min(e.clientX - d.left, d.width - 90) + "px"; ctx.style.top = Math.min(e.clientY - d.top, d.height - 40) + "px";
+  ctx.classList.add("on");
+});
+function paintLang() {
+  document.documentElement.lang = EN ? "en" : "zh";
+  document.title = L("克代同堂跑道", "Clawdex track");
+  runner.alt = L("主 AI", "Main AI");
+  handbtn.setAttribute("aria-label",L("能派活","Delegate"));
+  modelbtn.setAttribute("aria-label",L("换模型","Change model"));
+  job.setAttribute("aria-label",L("负责什么","Role"));
+  document.querySelector(".demo b").textContent = L("演示控件 · 不是界面的一部分", "Demo controls · outside the widget");
+  const demo = document.querySelector(".demo");
+  demo.querySelector("b").nextSibling.textContent = L("：正式版的额度是自动读的，这里用滑杆假装用掉", ": Live quota is read automatically. These sliders simulate usage.");
+  demo.querySelectorAll("label")[0].firstChild.textContent = L("这 5 小时用了 ","5-hour usage ");
+  demo.querySelectorAll("label")[1].firstChild.textContent = L("这周用了 ","Weekly usage ");
+  $("reset").textContent = L("重来","Reset");   // 语言是一个切换：写「语言 / Language」，现在用的那个加粗（10-27 用户：不能只写中文或只写英语）
+  $("langMark").textContent = "文A"; $("langSay").innerHTML = `${L("语言", "Language")}　<b style="font-weight:${EN ? 400 : 700}">中</b> / <b style="font-weight:${EN ? 700 : 400}">EN</b>`;
+  try { localStorage.setItem("clawdex.lang", EN ? "en" : "zh"); } catch (e) {}
+  if (window.clawdex && window.clawdex.lang) { window.clawdex.lang(EN ? "en" : "zh"); window.clawdex.send({ type: "lang", to: EN ? "en" : "zh" }); }   // 托盘菜单、插件写的默认那句都跟着换
+  $("setSay").textContent = L("管理队友", "Manage teammates");
+  document.querySelector(".cap").textContent = L("↓ 这就是界面。碰小克（停半秒）= 看队友；点小克 = 看跑道；按住小克一拖 = 能接棒的队友围着它排成一道弧，拖到谁身上交给谁", "↓ This is the widget. Hover Clawd (half a second) = teammates; click = track; drag Clawd = teammates gather in an arc, drop on one to hand off");
+}
+$("ctxLang").addEventListener("click", e => { e.stopPropagation(); EN = !EN; ctx.classList.remove("on"); paintLang(); refreshQuota(); buildTeam(); hideTip(); });
+$("ctxSet").addEventListener("click", e => { e.stopPropagation(); ctx.classList.remove("on"); openSettings(); });
+
+// 交棒 = 拖着选（10-27 用户：什么时候想交都行；弧放小克头顶、小一点）：按住小克一拖，跑道先淡出，能接棒的号从小克身上弹出来，在它头顶排成一道小弧，
+// 排第一的在最上面；拖到谁身上，谁转过来伸手要棒，别的变淡；松手 = 棒飞过去，再交棒；松在空地 = 他们跑回右边。点排里的人也能交
+let rdrag = null;
+function fanPos(k, n) {   // 小克头顶一道小弧（10-27 用户：别跟跑道搭在一起，别太大），每个离小克一样远
+  const d = dock.getBoundingClientRect(), wl = parseFloat(who.style.left) || BAR_L, rw = runner.offsetWidth, rh = runner.offsetHeight;
+  const R = 66, top = d.height - 70 - rh;   // 小克头顶那条线
+  const cx = Math.max(R + 18, Math.min(d.width - R - 18, wl + rw / 2)), cy = top + 14;
+  const a = (n === 1 ? -90 : -168 + 156 * k / (n - 1)) * Math.PI / 180;   // 从左下绕过头顶到右下
+  return { x: cx + R * Math.cos(a), y: Math.max(20, cy + R * Math.sin(a) * .82) };
+}
+function openFan() {
+  if (fan.classList.contains("on")) return;
+  fan.innerHTML = "";
+  const rl = relayList();
+  rl.forEach((m, k) => {
+    const el = document.createElement("div"), p = fanPos(k, rl.length);
+    el.className = "cand" + (canHandoff(m) ? "" : " unavailable"); el.style.left = p.x + "px"; el.style.top = p.y + "px";
+    el.style.transitionDelay = (k * 35) + "ms";   // 从小克身上一个个弹出来，排到头顶
+    const wl = parseFloat(who.style.left) || BAR_L; el.style.setProperty("--fx", (wl + runner.offsetWidth / 2 - p.x) + "px"); el.style.setProperty("--fy", (dock.clientHeight - 90 - p.y) + "px");
+    const w = SIZE[m.look + "-站"][0] * .5, q = (m.left == null ? `<b class="q none"></b>` : `<b class="q"><i style="width:${Math.round(m.left * 100)}%;background:${m.fill}"></i></b>`) + `<b class="pc">${m.left == null ? "?" : Math.round(m.left * 100) + "%"}</b>`;
+    el.innerHTML = `<div class="cman"><img alt="" src="${SRC[m.look + "-站"]}" style="width:${w}px">${q}</div>`;   // 头顶不冒字：名字和还剩多少写在脚下那一行
+    el.addEventListener("click", e => { e.stopPropagation(); passTo(m, el); });
+    el.addEventListener("mouseenter", () => { if (!rdrag) { el.classList.add("reach"); fan.classList.add("pick"); tell(L(`<b>交给 ${nm(m.name)}</b> · ${quotaSay(m)} · 点一下或把小克拖过来`, `<b>Hand to ${nm(m.name)}</b> · ${quotaSay(m)} · click, or drag Clawd here`)); } });
+    el.addEventListener("mouseleave", () => { if (!rdrag) { el.classList.remove("reach"); fan.classList.remove("pick"); hideTip(); } });
+    m.cand = el; fan.append(el);
+  });
+  void fan.offsetWidth; fan.classList.add("on");
+}
+function closeFan() { fan.classList.remove("on", "pick"); team.forEach(m => m.cand && m.cand.classList.remove("reach")); }
+const canHandoff = m => !m.acct && (m.name === "Codex" || m.name === "Antigravity") && m.installed === true && m.login !== "no";   // 10-28 用户：换号 = Claude、Codex、Gemini（Antigravity）
+function passTo(m, el) {   // 棒从小克手里划一道弧飞到接棒的手里，然后交棒
+  const d = dock.getBoundingClientRect(), a = runner.getBoundingClientRect(), b = el.querySelector("img").getBoundingClientRect();
+  const bt = document.createElement("i"); bt.className = "baton";
+  bt.style.left = (a.right - d.left - 10) + "px"; bt.style.top = (a.top - d.top + a.height * .35) + "px";
+  dock.append(bt); void bt.offsetWidth;
+  bt.style.left = (b.left - d.left + b.width * .2) + "px"; bt.style.top = (b.top - d.top + b.height * .55) + "px"; bt.style.transform = "rotate(-320deg)";
+  tell(L(`<b>交给 ${nm(m.name)}</b>`, `<b>Handing to ${nm(m.name)}</b>`));
+  setTimeout(() => { bt.remove(); closeFan(); hand(m); }, 480);
+}
+runner.addEventListener("pointerdown", e => {
+  if (busy) return;
+  clearTimeout(dwell);   // 按下去就不是「碰」了：不冒队友（10-27 用户：拖的时候上面那个人浮出来了）
+  rdrag = { x: e.clientX, y: e.clientY, moved: false };
+  runner.setPointerCapture(e.pointerId);
+});
+runner.addEventListener("pointermove", e => {
+  if (!rdrag) return;
+  const dx = e.clientX - rdrag.x, dy = e.clientY - rdrag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) rdrag.moved = true;
+  if (!rdrag.moved) return;
+  if (teamOpen) setTeam(false);   // 脚下小圆圈先收起，不同时出现两排一样的人
+  openFan();
+  runner.classList.add("drag"); who.classList.add("dragging"); dock.classList.add("handing");
+  const off = Math.min(1, Math.hypot(dx, dy) / 40);   // 拖开以后，小克往左下偏一点跟着手走，不盖住要接棒的人
+  runner.style.transform = `translate(${dx - 30 * off}px, ${dy + 42 * off}px)`;
+  let best = null, bd = 46;
+  team.forEach(m => { const r = m.cand.querySelector("img").getBoundingClientRect(), dd = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)); if (dd < bd) { bd = dd; best = m; } });
+  team.forEach(m => m.cand.classList.toggle("reach", m === best));
+  fan.classList.toggle("pick", !!best);   // 拖到某个人身上，别的才变淡
+  tell(best ? L(`<b>松手 = 交给 ${nm(best.name)}</b> · ${quotaSay(best)}`, `<b>Release = hand to ${nm(best.name)}</b> · ${quotaSay(best)}`) : L("拖到一个队友身上 = 交给它 · 松在空地 = 不交", "Drop on a teammate to hand off · drop elsewhere to cancel"));
+});
+runner.addEventListener("pointerup", () => {
+  if (!rdrag) return;
+  const t = team.find(m => m.cand && m.cand.classList.contains("reach")), moved = rdrag.moved;
+  rdrag = null; runner.classList.remove("drag"); who.classList.remove("dragging"); dock.classList.remove("handing"); runner.style.transform = "";
+  if (moved) runner.dataset.justDragged = "1";
+  if (t && moved) passTo(t, t.cand);
+  else if (moved) { closeFan(); hideTip(); }
+});
+
+// 碰 vs 点（10-27 用户挑 A）：停半秒才冒小组件；直接点 = 只看跑道；小组件开着时点 = 收起它、换成跑道
+let dwell = 0, closeT = 0;
+runner.addEventListener("click", e => {
+  e.stopPropagation(); clearTimeout(dwell);
+  if (runner.dataset.justDragged) { delete runner.dataset.justDragged; return; }
+  if (used() >= 100 && !fan.classList.contains("on")) { setTeam(false); openFan(); return; }
+  if (teamOpen) { teamOpen = false; open = true; hideTip(true); }
+  else { open = !open; if (!open) lane = null; }
+  render();
+});
+who.addEventListener("mouseenter", () => {
+  hovering = true; clearTimeout(closeT); hop();
+  if (!teamOpen) dwell = setTimeout(() => setTeam(true), 500);
+  render();
+});
+who.addEventListener("mouseleave", () => { hovering = false; clearTimeout(dwell); render(); });
+dock.addEventListener("mouseenter", () => clearTimeout(closeT));
+dock.addEventListener("mouseleave", () => { closeT = setTimeout(() => { const typing = cbox.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.value; if (!rdrag && !typing) { closeWheel(); closeClones(); setTeam(false); } if (!rdrag && used() < 100) closeFan(); }, 500); });   // 手移开半秒就收起，分身框、模型轮也一样；只有分身框里打字打到一半不收（10-28 用户：手移开就不该弹出内容）
+let wheelAt = 0;
+dock.addEventListener("wheel", e => {
+  if (!teamOpen) return;
+  e.preventDefault();
+  const now = Date.now();
+  if (now - wheelAt < 300) return;   // 触控板一滑会来一串，一串只换一个人
+  wheelAt = now; show(cur + (e.deltaY > 0 ? 1 : -1));
+}, { passive: false });
+document.addEventListener("click", e => { if (!dock.contains(e.target)) { setTeam(false); closeFan(); } });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { setTeam(false); closeFan(); }
+  if (teamOpen && (e.key === "ArrowRight" || e.key === "ArrowLeft")) show(cur + (e.key === "ArrowRight" ? 1 : -1));
+});
+const RESET_DAY = 4;   // 这周额度周四回满（正式版从额度里读）
+$("days").innerHTML = "<span></span>".repeat(7);   // 7 段 = 7 天，只画刻度不写字（10-27 用户：写「四五六日」太丑）
+$("bar").onclick = e => {
+  e.stopPropagation();
+  const h5 = quotaValue("h5"), wk = quotaValue("wk"), now = lane || (wk > h5 ? "wk" : "h5");
+  $("bar").classList.add("flip");   // 条往上翻一下，换成另一条跑道
+  setTimeout(() => { lane = now === "wk" ? "h5" : "wk"; render(); $("bar").classList.remove("flip"); }, 170);
+};
+$("bar").onmouseenter = () => { onBar = true; render(); };
+$("bar").onmouseleave = () => { onBar = false; render(); };
+$("h5").oninput = $("wk").oninput = () => { handed = null; render(); };
+$("reset").onclick = () => { closeFan(); team = FIRST.team.slice(); main = FIRST.main; handed = null; open = false; teamOpen = false; cur = 0; $("h5").value = 38; $("wk").value = 22; buildTeam(); render(); };
+// 设置：跟设置页读写同一份（正式版是同一个设置文件）
+const KEY = "clawdex.settings";
+let SET = {};
+function loadSet() {
+  try { SET = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { SET = {}; }
+  if (SET.work && !window.clawdex) { const pos = n => { const i = SET.work.indexOf(n); return i < 0 ? 99 : i; }; const keep = team[cur]; team.sort((a, b) => pos(a.name) - pos(b.name)); cur = Math.max(0, team.indexOf(keep)); }
+}
+function saveWork() {   // 在这里拖小圆圈改了顺序，存回去
+  if (window.clawdex) {
+    const ids = team.filter(t => !t.acct && t.look !== "小克").flatMap(t => t.clones.map((c,i) => c.id || t.name+"#"+(i+1)));
+    pendingOrder = ids;
+    window.clawdex.send({type:"mate-order", ids});
+    return;
+  }
+  loadSetRaw(); SET.work = team.map(t => t.name);
+  try { localStorage.setItem(KEY, JSON.stringify(SET)); } catch (e) {}
+}
+function loadSetRaw() { try { SET = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { SET = {}; } }
+const relayList = () => {   // 交棒的号：按设置页背面的顺序
+  if (SET.mode?.relay !== "order") return team.slice().sort((a,b) => (b.left ?? -1) - (a.left ?? -1));
+  if (!SET.relay) return team.slice();
+  const pos = n => { const i = SET.relay.indexOf(n); return i < 0 ? 99 : i; };
+  return team.slice().sort((a, b) => pos(a.name) - pos(b.name));
+};
+window.addEventListener("storage", e => { if (e.key === KEY) { loadSet(); buildTeam(); render(); } });
+loadSet();
+buildTeam(); render(); paintLang();
+
+// 浮窗（真插件）：数据从 Claude 里的克代同堂插件来
+if (window.clawdex) {
+  document.body.classList.add("float");
+  const LV = ["关", "低", "中", "高"];
+  // 手动加的号（设置页「换号」里加，存在 clawdex.settings 的 accounts）：Claude 换好号自动识别；别家 AI 的第二个号手动加
+  let detectedAccounts = [], floatAccount = null;
+  const extras = () => { let manual=[]; try { manual=(JSON.parse(localStorage.getItem("clawdex.settings") || "{}") || {}).accounts || []; } catch(e) {} return [...detectedAccounts, ...manual].filter((a,i,all)=>all.findIndex(b=>b.name===a.name)===i); };
+  const LOOK = { Codex: ["codex", "#6E6A63"], Gemini: ["gemini", "#5B86EA"], Antigravity: ["gemini", "#5B86EA"] };
+  const fmt = (iso, day) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    const hm = d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+    return (day ? d.toLocaleDateString(EN ? "en-US" : "zh-CN", {weekday:"short"}) + " " : "") + hm + " ";
+  };
+  let last = "", lastMain = "小克", lastState = null, handedAt = Date.now();
+  const onSt = st => {
+    applyingState = true;
+    lastState = st;
+    detectedAccounts = floatAccount?.accounts || st.accounts || [];
+    stateAccount = floatAccount?.account || {ai:"Claude",label:"Claude"};
+    KNOWN = Object.fromEntries((st.known || []).map(k => [k.name, k]));
+    knownNames = Object.fromEntries((st.known || []).filter(k=>k.display).map(k=>[k.name,k.display]));
+    builtinJobs = (st.known || []).filter(k => k.job).map(k => [k.job.zh, k.job.en]);
+    refreshQuota = () => {
+      realUsage = (main.name === "小克" ? st.usage : !main.acct ? st.quota?.[main.name] : null) || {five:null,week:null,fiveAt:null,weekAt:null};
+      RESET = {h5: realUsage.source === "claude-history" ? L("查不到", "unknown") : fmt(realUsage.fiveAt), wk: realUsage.source === "claude-history" ? L("查不到", "unknown") : fmt(realUsage.weekAt, true)};
+      publishCurrent();
+    };
+    refreshQuota();
+    const mates = (st.settings && st.settings.mates) || [];
+    const key = JSON.stringify([mates, st.known, extras()]);
+    if (key !== last || main.name !== lastMain) {   // 队友变了、或者换了人才重排：一个号 = 一个队友，同名的几行 = 它的分身
+      lastMain = main.name;
+      last = key;
+      const by = {};
+      mates.forEach(m => (by[m.name] = by[m.name] || []).push(m));
+      team = Object.keys(by).map(n => {
+        const [look, fill] = LOOK[n] || ["通用-蓝", "#4A7BF0"];
+        const status = (st.known || []).find(k => k.name === n) || by[n][0];
+        return { name: n, look, fill, installed: status.installed, login: status.login, left: null, models: [...new Set(["default", ...(MODELS[n] || []), ...by[n].map(m => normalizeModel(m.model))])], ci: 0, clones: by[n].map((m,i) => ({ id: m.id || n+"#"+(i+1), model: normalizeModel(m.model), job: m.job, icon:m.icon, jobs:m.jobs || [], task: Math.max(0, LV.indexOf(m.level)), savedModels:m.models || [], mine: (m.models || []).filter(x => x.mine).map(x => x.t) })) };
+
+      });
+      const active = team.find(m => m.name === main.name);
+      if (active) main = {...active, ci: Math.min(main.ci, active.clones.length-1)};
+      team = team.filter(m => m.name !== main.name);
+      extras().filter(a => a.name !== currentAccount()).forEach(a => {   // 手动加的号也能接手
+        const [look, fill] = a.ai === "Claude" ? ["小克", "#D77757"] : LOOK[a.ai] || ["通用-蓝", "#4A7BF0"];
+        const status = (st.known || []).find(k => k.name === a.ai);
+        team.push({ name: a.name, acct: a.ai, installed: a.ai === "Claude" ? true : status?.installed === true, login: status?.login || "unknown", look, fill, left: null, models: MODELS[a.ai] || [], ci: 0, clones: [{ model: (MODELS[a.ai] || [""])[0] || "", job: "", task: 0, mine: [] }] });
+      });
+      if (main.name !== "小克") team.push({ name: "小克", look: "小克", fill: "#D77757", left: null, models: MODELS.Claude, ci: 0, clones: [{ model: "claude-opus-5-5", job: "", task: 0, mine: [] }] });   // 交给别人以后，原来的 Claude 号也在能接手的里，想回来就交回去
+      cur = Math.min(cur, Math.max(0, team.length - 1));
+      buildTeam();
+    }
+    const q = st.quota || {};
+    team.forEach(m => {
+      m.usage = m.name === "小克" ? st.usage : !m.acct ? q[m.name] : null;
+      const values = [m.usage?.five, m.usage?.week].filter(v => typeof v === "number");
+      m.left = values.length ? Math.max(0, 1 - Math.max(...values)/100) : null;
+    });
+    buildTeam();   // 队友额度：插件从它自己的记录里读的
+    if (main.name !== "小克" && st.active && st.active.ai === "Claude" && st.active.at > handedAt) {   // 你又在 Claude 里说话了 = 主角换回 Claude（10-28 用户：没有换回来）
+      const back = team.find(m => m.name === "小克");
+      if (back && !pendingHandoff) { handedAt = Date.now(); handOrig(back); setTimeout(() => { if (lastState) onSt(lastState); }, 800); }
+    }
+    if ((st.handoff?.to === "Codex" || st.handoff?.to === "Antigravity") && handoffRequests.has(st.handoff.requestId)) finishHandoff(st.handoff);
+    if (who.classList.contains("me")) who.dataset.name = currentAccount() + L(" · 当前", " · current");
+    for (const [id, name] of pendingClones) {
+      if (!mates.some(m => m.id === id)) continue;
+      pendingClones.delete(id);
+      const m = team.concat([main]).find(m => m.name === name);
+      if (m) { m.ci = m.clones.findIndex(c => c.id === id); cur = Math.max(0, team.indexOf(m)); sizeClones(); cloneRows(true); }
+      tell(L("<b>加了一个分身</b> · 写它负责什么，回车；模型用头顶的模型按钮换", "<b>Clone added</b> · type what it does, Enter; change its model with the model button"));
+    }
+    if (pendingOrder && JSON.stringify(mates.map((m,i) => m.id || m.name+"#"+(mates.slice(0,i).filter(x=>x.name===m.name).length+1)).filter(id => pendingOrder.includes(id))) === JSON.stringify(pendingOrder)) {
+      pendingOrder = null;
+      tell(L("顺序已保存 · 自定顺序时排前面的先接", "Order saved · used when Delegate is set to Custom order"));
+    }
+    // 换号由浮窗独立通知，旧对话插件的 move 不再控制气泡。
+    render();
+    if (!pendingHandoff) sent = JSON.stringify(mates.map(m => ({id:m.id,name:m.name,model:normalizeModel(m.model),job:m.job,icon:m.icon,models:m.models || [],jobs:m.jobs || [],level:m.level})));
+    applyingState = false;
+  };
+  window.clawdex.onState(onSt);
+  const laneTag = document.createElement("div"); laneTag.className = "lanetag"; stage.append(laneTag);
+  const laneTip = document.createElement("div"); laneTip.className = "lanetip"; stage.append(laneTip);
+  const bar = $("bar");
+  bar.addEventListener("mouseenter", () => { laneTip.classList.add("on"); laneTag.classList.add("hide"); });
+  bar.addEventListener("mouseleave", () => { laneTip.classList.remove("on"); laneTag.classList.remove("hide"); });
+  const paintLane = () => {   // 条旁边：这条是哪个额度、用了多少；碰到条：几点回满、点了换哪条
+    const wkOn = bar.classList.contains("wk");
+    const v = quotaValue(wkOn ? "wk" : "h5");
+    laneTag.textContent = (wkOn ? L("本周", "Week") : L("5 小时", "5h")) + " " + (v == null ? L("查不到", "unknown") : L("已用 " + Math.round(v) + "%", Math.round(v) + "% used"));
+    const at = (wkOn ? RESET.wk : RESET.h5).trim();
+    const resetText = realUsage?.source === "claude-history" ? L("回满时间：查不到", "Reset time: unknown") : at ? L(`${at} 回满`, `resets ${at}`) : "";
+    laneTip.textContent = laneTag.textContent + " · " + (resetText ? resetText + " · " : "") + (wkOn ? L("点条换 5 小时", "click: 5h") : L("点条换本周", "click: week"));
+  };
+  window.addEventListener("storage", e => { if (e.key === "clawdex.settings" && lastState) { last = ""; onSt(lastState); } });   // 设置页加了 / 删了号，这里跟着变
+  // 换号后：旧号还有对话没接过来 → 小克头顶冒一个小气泡
+  let bubbleUntil = 0, bubbleTimer;
+  const ask = document.createElement("div");
+  ask.className = "ask";
+  who.append(ask);
+  let askedChange = null;
+  window.clawdex.onAccount(info => {
+    floatAccount = info;
+    stateAccount = info.account;
+    detectedAccounts = info.accounts || [];
+    if (lastState) { last = ""; onSt(lastState); }
+    publishCurrent();
+    if (who.classList.contains("me")) who.dataset.name = currentAccount() + L(" · 当前", " · current");
+    const change = info.change;
+    if (!change || change.answered || askedChange === change.id) return;
+    askedChange = change.id;
+    cancelCountdown();
+    const answer = async bring => {
+      bubbleUntil = 0;
+      const result = await window.clawdex.answerAccount(change.id, bring);
+      if (bring && !result?.selecting) bubble(result?.ok ? L("在 Claude 里按发送就开始搬", "Press Send in Claude to start bringing chats over") : L("没能打开清单，请重新换号后再挑选", "Could not open the list. Switch accounts again to choose chats"), [{t:L("知道了","Got it"),no:true}]);
+    };
+    bubble(safeBubbleText(L("换到 " + info.account.label + " 了 · 接过来旧号的对话？", "Switched to " + info.account.label + " · Bring over chats from the old account?")), [{t:L("挑一挑","Choose chats"),f:()=>answer(true)}, {t:L("不用","Skip"),no:true,f:()=>answer(false)}], true);
+  });
+  window.clawdex.onMoveResult(result => {
+    if (result?.ok) bubble(L("在 Claude 里按发送就开始搬", "Press Send in Claude to start bringing chats over"), [{t:L("知道了","Got it"),no:true}]);
+  });
+  // 在浮窗里改了档位 / 模型 / 负责：写回插件
+  let sent = "", applyingState = false;
+  const sync = () => {
+    if (applyingState || !lastState) return;
+    const previous = JSON.parse(sent || '[]');
+    const patches = [];
+    team.concat([main]).filter(t => !t.acct && t.look !== "小克").forEach(t => t.clones.forEach((c,i) => {
+      const id = c.id || t.name+"#"+(i+1);
+      const old = previous.find(m => m.id === id);
+      if (!old) return; // 名单增删只能由设置页保存决定。
+      const values = {model:normalizeModel(c.model),job:c.job,icon:c.icon,models:[...(c.savedModels || []).filter(x=>!x.mine),...c.mine.map(t=>({t,mine:true}))],jobs:c.jobs || [],level:LV[c.task] || "关"};
+      const fields = {};
+      for (const key of Object.keys(values)) if (JSON.stringify(values[key]) !== JSON.stringify(old[key])) fields[key] = values[key];
+      if (Object.keys(fields).length) { patches.push({id,fields}); Object.assign(old,fields); }
+    }));
+    if (!patches.length) return;
+    sent = JSON.stringify(previous);
+    window.clawdex.send({ type: "mate-patch", patches });
+  };
+  const draw = render;
+  render = function () { draw(); try { sync(); } catch (e) {} try { paintLane(); } catch (e) {} };
+  // 头顶小气泡：一句话 + 几个按钮（点了就收起）
+  function bubble(html, btns, waiting = false) {
+    closeWheel(); closeClones(); teamOpen = false; dock.classList.remove("team");
+    clearTimeout(bubbleTimer); bubbleUntil = waiting ? Infinity : Date.now() + 7000;
+    ask.innerHTML = `<div class="message">${html}</div><div class="bubble-actions">` + btns.map((b, i) => `<button class="${b.no ? "no" : "yes"}" data-i="${i}">${b.t}</button>`).join("") + "</div>";
+    ask.querySelectorAll("button").forEach(el => el.onclick = e => { e.stopPropagation(); ask.classList.remove("on"); const f = btns[+el.dataset.i].f; if (f) f(); });
+    ask.classList.add("on"); fitBubble();
+    if (!waiting) bubbleTimer = setTimeout(() => { ask.classList.remove("on"); bubbleUntil = 0; }, 7000);
+  }
+  function fitBubble() {
+    ask.style.width = Math.min(300, dock.clientWidth - 16) + "px";
+    const offset = parseFloat(who.style.left) || BAR_L;
+    ask.style.left = Math.max(8-offset, Math.min(-8, dock.clientWidth-offset-ask.offsetWidth-8)) + "px";
+  }
+  showUndo = () => {
+    let text = L("已交给 " + nm(main.name) + " 接着做", "Handed to " + nm(main.name));
+    if (main.acct) {
+      const tk = "clawdex.altTold."+main.acct;
+      if (localStorage.getItem(tk) !== "1") {
+        text += "<br>" + L("换号后小克问「接过来旧号的对话？」→ 点「挑一挑」→ 照左侧栏样子的清单里勾要搬的（默认勾做到一半的）→ 点「接过来」→ 在 Claude 里按发送 → 只搬勾的，分支照原样挂好。", "After switching, Clawd asks “Bring over chats from the old account?” → click Choose chats → check the chats in a list arranged like your sidebar (in-progress chats are checked by default) → click Bring over → press Send in Claude → only checked chats move, with branches kept in their original places.");
+        localStorage.setItem(tk,"1");
+      }
+    }
+    bubble(text + "<br>" + L("想回来，在 Claude 里接着说就行", "To come back, just keep talking in Claude"), [{t:L("知道了","Got it"), no:true}]);   // 交出去以后不放「撤销」：新对话已经开了，撤不回来（10-28 Codex 查出：撤销只换回浮窗显示，会让人误以为取消了）
+    const snapshot = handed;
+    setTimeout(() => { if (handed === snapshot) { handed = null; render(); } }, 7000);
+  };
+  // 交棒：跟原来设计的一模一样（头顶一道站着的小人弧、棒飞过去、换人、能撤销），只是叫出那道弧的动作换了：
+  //   拖小克已经是挪位置，所以右键「换号」叫出弧，点一个小人就交给它；额度用完时弧自己冒出来
+  //   交完真的去做：交给 Codex = 用官方 Codex 插件把这段对话整段转过去（/codex:transfer）；
+  //   交给另一个 Claude 号 = 桌面版要你自己登录那个号，登好后点头顶「接过来」才搬家
+  const pass = passTo;
+  let pendingHandoff = null, countdown = null;
+  function cancelCountdown() { if (countdown) clearInterval(countdown.timer); countdown = null; }
+  const handoffRequests = new Map();
+  const safeBubbleText = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  function finishHandoff(receipt) {
+    const pending = handoffRequests.get(receipt.requestId);
+    if (!pending || pending.voided) return;
+    clearTimeout(pending.timer); handoffRequests.delete(pending.id);
+    if (pendingHandoff === pending) pendingHandoff = null;
+    if (receipt.ok === true && main.name === pending.m.name) return;
+    if (receipt.ok === true) { bubble(L("已交给 " + nm(pending.m.name) + " 接着做", "Handed to " + nm(pending.m.name)), [{t:L("知道了","Got it"),no:true}]); pass(pending.m, pending.el); return; }
+    bubble(safeBubbleText(L("交给 " + nm(pending.m.name) + " 失败：", nm(pending.m.name) + " handoff failed: ") + (receipt.error || L("没有收到成功回执", "No success receipt received"))), [{t:L("知道了","Got it"),no:true}]);
+  }
+  passTo = function (m, el) {
+    if (pendingHandoff || countdown || busy) return;
+    if (!canHandoff(m)) {
+      closeFan();
+      const ai = m.acct || (m.name === "小克" ? "Claude" : nm(m.name));
+      const tk = "clawdex.unavailable.v36." + m.name + (m.installed === false ? ".missing" : ".manual");
+      const seen = localStorage.getItem(tk) === "1";   // 看过完整说明的，以后每次给一句短的（10-28 用户：拖到 Claude 2 没有任何反应）
+      localStorage.setItem(tk,"1");
+      let text;
+      if (seen && (m.acct || ai === "Claude") && m.installed !== false) {
+        const who = m.acct ? m.name : ai;
+        bubble(safeBubbleText(L("去 " + ai + " 里退出，登录 " + who, "Sign out in " + ai + " and sign in to " + who)), [{t:L("知道了","Got it"),no:true}]);
+        return;
+      }
+      if (m.installed === false) text = L(ai + " 没装", ai + " is not installed");
+      else if (m.acct || ai === "Claude") text = ai === "Claude"
+        ? L("换号后小克问「接过来旧号的对话？」→ 点「挑一挑」→ 照左侧栏样子的清单里勾要搬的（默认勾做到一半的）→ 点「接过来」→ 在 Claude 里按发送 → 只搬勾的，分支照原样挂好。", "After switching, Clawd asks “Bring over chats from the old account?” → click Choose chats → check the chats in a list arranged like your sidebar (in-progress chats are checked by default) → click Bring over → press Send in Claude → only checked chats move, with branches kept in their original places.")
+        : L("在 " + ai + " 里退出，再登录另一个号", "Sign out in " + ai + " and sign in to the other account");
+      else text = m.login === "no" ? L(ai + " 没登录", ai + " is not signed in") : L("现在还不能交给 " + ai + "，帮助里有说明", "Cannot hand off to " + ai + " yet. See Help.");
+      if (seen && !(m.acct || ai === "Claude")) text = text.split(/[，。,.]/)[0];   // 看过的只留第一句，但每次都有反应
+      bubble(safeBubbleText(text), [{t:L("知道了","Got it"),no:true}]);
+      return;
+    }
+    closeFan();
+    for (const pending of handoffRequests.values()) { pending.voided = true; clearTimeout(pending.timer); }
+    const queue = { m, el, left:3, timer:null };
+    countdown = queue;
+    const paint = () => bubble(L(queue.left + " 秒后交给 " + nm(m.name), "Hand off to " + nm(m.name) + " in " + queue.left + " seconds"), [{t:L("撤销","Undo"), f:()=>{ cancelCountdown(); bubbleUntil=0; }}], true);
+    paint();
+    queue.timer = setInterval(() => {
+      if (countdown !== queue) return;
+      queue.left--;
+      if (queue.left > 0) { paint(); return; }
+      cancelCountdown();
+      sendHandoff(m, el);
+    }, 1000);
+  };
+  function sendHandoff(m, el) {
+    const id = Date.now() + "-" + Math.random().toString(36).slice(2);
+    pendingHandoff = { id, m, el, timer:setTimeout(() => {
+      if (pendingHandoff?.id === id) pendingHandoff = null;
+      bubble(L("3 分钟内没有收到交接回执；收到结果后会更新", "No handoff receipt within 3 minutes; the result will update when received"), [{t:L("知道了","Got it"),no:true}]);
+    }, 180000) };
+    handoffRequests.set(id, pendingHandoff);
+    bubble(L("正在交给 " + nm(m.name) + "…", "Handing over to " + nm(m.name) + "…"), [], true);
+    window.clawdex.send({ type: "handoff", to: m.name, requestId:id });
+  };
+  autoRelay = function () { if (used() >= 100) openFan(); };
+  const fanOrig = openFan;
+  openFan = function () {
+    const all = team;   // 换号的弧只放真能换过去的：能交接的 AI、手动加的号、原来的 Claude（10-28：Antigravity 不能换过去，却出现在弧上）
+    const handOnly = ["Codex", "Antigravity"].filter(n => !all.some(m => m.name === n)).map(n => (lastState?.known || []).find(k => k.name === n)).filter(k => k && k.installed && k.login !== "no")
+      .map(k => ({ name: k.name, look: (LOOK[k.name] || ["通用-蓝"])[0], fill: (LOOK[k.name] || [, "#4A7BF0"])[1], installed: true, login: k.login, left: null, models: MODELS[k.name] || [], ci: 0, clones: [{ model: "default", job: "", task: 0, mine: [] }] }));   // 不在委派名单里、但能换过去的（Gemini）也放上弧
+    team = [...all.filter(m => canHandoff(m) || m.acct || m.name === "小克"), ...handOnly];
+    try { fanOrig(); } finally { team = all; }
+    team.forEach(m => { if (m.cand) m.cand.dataset.name = m.acct ? m.name : m.name === "小克" ? stateAccount.label : nm(m.name); });
+    who.dataset.name = currentAccount() + L(" · 当前", " · current"); who.classList.add("me");   // 跟别家账号切换器一样，标出现在用的是哪个
+  };
+  const fanShut = closeFan;
+  closeFan = function () { fanShut(); who.classList.remove("me"); };
+  // 透明的地方鼠标直接穿过去（不挡后面的窗口、输入框、语音按钮）；碰到小克这些东西才接住
+  const EMPTY = el => !el || el === document.documentElement || el === document.body || el.classList.contains("wrap") || el === dock || el === stage;
+  let through = true;
+  document.addEventListener("mousemove", e => {
+    const t = EMPTY(e.target) && !mv && !press && !lifted && !ctx.classList.contains("on") && !teach.classList.contains("on");   // 按着小克、拿起小克的时候一直接住鼠标，不然一移到透明处就拖不动了（10-27）
+    if (t !== through) { through = t; window.clawdex.through(t); }
+  });
+  // 右键菜单里加「挪位置」「关掉浮窗」（浮窗没有边框、不在任务栏；右下角托盘图标里也能关）
+  const item = (zh, en, fn) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>${L(zh, en)}</span>`; b.dataset.zh = zh; b.dataset.en = en;
+    b.addEventListener("click", e => { e.stopPropagation(); ctx.classList.remove("on"); fn(); });
+    ctx.append(b);
+  };
+  item("退出", "Quit", () => { window.clawdex.send({ type: "closed" }); window.clawdex.close(); });   // 大家都写「退出」（10-27 用户：别写那么多字）
+  const relabel = paintLang;
+  paintLang = function () { relabel(); ctx.querySelectorAll("button[data-zh]").forEach(b => { b.querySelector("span").textContent = L(b.dataset.zh, b.dataset.en); }); };
+  // 右键菜单：点了一项、点别的地方、切到别的程序、按 Esc 都收起（10-27 用户：菜单一直在那儿关不掉）
+  const shut = () => ctx.classList.remove("on");
+  window.addEventListener("blur", shut);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") shut(); });
+  new MutationObserver(() => { if (ctx.classList.contains("on")) { through = false; window.clawdex.through(false); } }).observe(ctx, { attributes: true, attributeFilter: ["class"] });
+  // 小克身上的手（10-27 用户定）：按住直接拖 = 挪浮窗（跟所有桌宠一样）；长按不动 = 把小克拿起来 = 交棒
+  //   学灵感库 564 Slipstone：点 = 做事、长按 = 把石头拿起来；拿起来后头顶冒出能接棒的小人，拖到谁身上松手 = 交给它，
+  //   不拖就松手 = 小人留着，点一个也能交（拖拽一定要有不用拖的办法，ui-flow 二-14）；松在空地 = 放下不交
+  //   窗口跟着鼠标走由主程序做（每帧读鼠标位置），拖快了、往下拖也不会丢
+  let press = null, mv = false, lifted = null;
+  const near = (x, y) => {   // 离手最近的那个小人（46 像素以内）
+    let best = null, bd = 46;
+    team.forEach(m => { if (!m.cand) return; const r = m.cand.querySelector("img").getBoundingClientRect(), d = Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2)); if (d < bd) { bd = d; best = m; } });
+    return best;
+  };
+  document.addEventListener("pointerdown", e => {
+    if (!runner.contains(e.target) || e.button !== 0 || busy) return;
+    e.stopPropagation();   // 不走原来「一按就拖着交棒」
+    clearTimeout(dwell);   // 按下去就不是「碰」，不冒队友
+    runner.setPointerCapture(e.pointerId);
+    through = false; window.clawdex.through(false);
+    press = { x: e.clientX, y: e.clientY, t: setTimeout(() => {   // 长按 0.45 秒不动 = 拿起来
+      press = null; lifted = { x: e.clientX, y: e.clientY, moved: false };
+      setTeam(false); runner.classList.add("lift"); openFan();
+    }, 450) };
+  }, true);
+  document.addEventListener("pointermove", e => {
+    if (press && !mv && Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) > 4) {   // 没等到长按就动了 = 挪浮窗
+      clearTimeout(press.t); press = null; mv = true; setTeam(false);
+      window.clawdex.dragStart();
+      return;
+    }
+    if (!lifted) return;
+    const dx = e.clientX - lifted.x, dy = e.clientY - lifted.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) lifted.moved = true;
+    runner.style.transform = `translate(${dx}px, ${dy}px)`;
+    const best = near(e.clientX, e.clientY);
+    team.forEach(m => m.cand && m.cand.classList.toggle("reach", m === best));
+    fan.classList.toggle("pick", !!best);
+  }, true);
+  document.addEventListener("pointerup", e => {
+    if (press) { clearTimeout(press.t); press = null; return; }   // 只是点了一下：照常开跑道
+    if (!mv && !lifted) return;
+    runner.dataset.justDragged = "1";
+    if (mv) { mv = false; window.clawdex.dragEnd(); return; }
+    const moved = lifted.moved, best = near(e.clientX, e.clientY);
+    lifted = null; runner.classList.remove("lift"); runner.style.transform = "";
+    if (best && moved) passTo(best, best.cand);
+    else if (moved) closeFan();   // 松在空地 = 放下不交
+  }, true);
+  // 新手教学：第一次打开浮窗，在小克旁边一张张教完所有操作（10-28 用户挑 C：手绘手势小图、字少）
+  //   点一下 和 长按 分清楚（长按那张用橙色写「按住不放」）；最后一张告诉他们看不懂去哪找帮助；点卡片 = 下一张，「跳过」= 不再出现
+  const HAND = '<path d="M11 21 V11 a2 2 0 0 1 4 0 V19 M15 17 a2 2 0 0 1 4 0 V20 M19 18 a2 2 0 0 1 4 0 V22 c0 5 -3 8 -7 8 c-3 0 -5 -2 -7 -5 l-3 -5 a2 2 0 0 1 3 -2 l2 3"/>';
+  const ICONS = {
+    hover: '<path d="M10 6 L10 25 L15 20 L18.5 28 L21.5 26.6 L18 19 L25 19 Z"/><path d="M26 6 c2 1 3 3 3 5 M23 8 c1 .6 1.6 1.6 1.6 2.8" stroke="#D77757"/>',
+    tap: HAND + '<path d="M9 5 l2 3 M13 3 v3.5 M17 5 l-2 3" stroke="#D77757"/>',
+    drag: HAND + '<path d="M2 9 h6 M4 7 l-2 2 l2 2 M32 9 h-6 M30 7 l2 2 l-2 2" stroke="#D77757"/>',
+    hold: HAND + '<path d="M13 4.5 a6.5 6.5 0 1 1 -4.6 1.9" stroke="#D77757"/><path d="M8 3 l.5 3.5 l3.3 -.9" stroke="#D77757"/>',
+    right: '<path d="M10 7 c0 -3 3 -4 7 -4 s7 1 7 4 v14 c0 5 -3 8 -7 8 s-7 -3 -7 -8 Z M10 13 h14 M17 3 v10"/><path d="M17.6 3.6 c3 0 5.8 .8 5.8 3.4 v5.4 h-5.8 Z" fill="#D77757" stroke="none"/>',
+    intro: '<path d="M17 4 l2.6 7.4 l7.4 2.6 l-7.4 2.6 l-2.6 7.4 l-2.6 -7.4 l-7.4 -2.6 l7.4 -2.6 Z"/><path d="M27 22 l1 3 l3 1 l-3 1 l-1 3 l-1 -3 l-3 -1 l3 -1 Z" stroke="#D77757"/>',
+    acct: '<path d="M8 13 a5 5 0 1 1 10 0 a5 5 0 1 1 -10 0 Z M3 29 c0 -6 4.5 -9 10 -9 s10 3 10 9"/><path d="M27 9 v10 M22 14 h10" stroke="#D77757"/>',
+    help: '<path d="M17 30 a12 12 0 1 1 0 -24 a12 12 0 1 1 0 24 Z"/><path d="M13 14 c0 -3 2 -4.5 4.2 -4.5 c2.4 0 4.2 1.5 4.2 3.8 c0 3.2 -4.2 3.2 -4.2 6.4 M17.2 23.6 v.6" stroke="#D77757"/>',
+  };
+  const STEPS = () => [
+    ["intro", L("克代同堂能做三件事", "Clawdex does three things"), L("派小活给别的 AI（目前 Claude 和 Codex 互相派）、看额度、换号。Gemini：装 Google 的 Antigravity 登录，用的还是你的 Gemini 会员", "Hand small tasks to other AIs (currently Claude and Codex, either way), watch quota, switch accounts. Gemini: install Google’s Antigravity and sign in; it uses your Gemini plan")],   // 第一次打开先说这是什么（10-28 用户：进来的时候要介绍有哪些功能）
+    ["hover", L("碰一下小克", "Hover Clawd"), L("看队友", "See teammates")],
+    ["tap", L("点一下", "Click"), L("开跑道（额度）：显示快用完的那条（5 小时或本周），点条换另一条", "Open the track (quota): shows whichever limit (5-hour or week) is closer to running out; click the bar for the other")],
+    ["drag", L("按住直接拖", "Press and drag"), L("挪位置", "Move it")],
+    ["hold", L("按住不放", "Press and hold"), L("换号：按住不动，等队友冒出来，拖到谁身上就交给谁，3 秒内能撤销", "Switch account: hold still until teammates appear, then drop on one; undo within 3 seconds")],
+    ["acct", L("还有第二个号？", "Got another account?"), L("Claude 换好号会自己认出来；别家 AI 的第二个号：右键 → 管理队友 → 换号，加一下", "Claude accounts are detected after you switch; for other AIs: Right-click → Teammates → Switch, add it")],   // Claude 自动识别，别家 AI 的第二个号手动加
+    ["right", L("右键", "Right-click"), L("语言、管理队友、退出", "Language, teammates, quit")],
+    ["help", L("还是不懂？", "Still lost?"), L("右键 → 管理队友 → 帮助。找不到小克：双击桌面的「克代同堂」", "Right-click → Teammates → Help. Can’t find Clawd? Double-click “Clawdex” on the desktop")],
+  ];
+  const teach = document.createElement("div");
+  teach.className = "teach";
+  dock.append(teach);
+  let step = -1;
+  const doneTeach = () => { teach.classList.remove("on"); step = -1; try { localStorage.setItem("clawdex.taught", "4"); } catch (e) {} };
+  const showStep = () => {
+    const all = STEPS(), [ic, act, res] = all[step];
+    teach.innerHTML = `<svg viewBox="0 0 34 34" fill="none" stroke="#26231F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[ic]}</svg>`
+      + `<div><b class="${ic === "hold" ? "hot" : ""}">${act}</b><span>${res}</span></div>`
+      + `<i>${all.map((_, k) => `<em class="${k === step ? "on" : ""}"></em>`).join("")}</i><div class="nav">${step > 0 ? `<button class="prev">${L("上一步", "Back")}</button>` : ""}<button class="next">${step === all.length - 1 ? L("完成", "Done") : L("下一步", "Next")}</button><button class="skip">${L("跳过", "Skip")}</button></div>`;
+    const prev = teach.querySelector(".prev");
+    if (prev) prev.onclick = e => { e.stopPropagation(); step--; showStep(); };
+    teach.querySelector(".next").onclick = e => { e.stopPropagation(); step++; if (step >= all.length) doneTeach(); else showStep(); };
+    teach.querySelector(".skip").onclick = e => { e.stopPropagation(); doneTeach(); };
+    teach.classList.add("on");
+    through = false; window.clawdex.through(false);
+  };
+  teach.addEventListener("click", e => { e.stopPropagation(); step++; if (step >= STEPS().length) doneTeach(); else showStep(); });
+  let taught = "";
+  try { taught = localStorage.getItem("clawdex.taught") || ""; } catch (e) {}
+  if (taught !== "4") setTimeout(() => { step = 0; showStep(); }, 800);
+  // 换主角后，按插件真名单重建队友，并刷新该主角的真实额度。
+  const handOrig = hand;
+  hand = function (m) {
+    handedAt = Date.now(); handOrig(m); setTimeout(() => { if (lastState) onSt(lastState); }, 800); return;   // 换完人按真名单重排一次
+  };
+}
+</script>
+</body>
+</html>

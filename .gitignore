@@ -1,0 +1,7 @@
+node_modules/
+CLAUDE.md
+.sync/
+__pycache__/
+*.pyc
+.claude-plugin/types/
+*.log
