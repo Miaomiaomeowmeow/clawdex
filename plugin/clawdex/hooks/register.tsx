@@ -988,7 +988,28 @@ ${roster}
     await update($, { plugin: 'clawdex', key: 'job' }, () => L(`${mate.name} 在做：${input.goal.slice(0, 40)}`, `${mate.name} is working on: ${input.goal.slice(0, 40)}`))
     await writeState($)
     try {
-      const r = script ? await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: 600000 }) : await runCLI($, ai.executable, argv, 590000)
+      // 11-04：Codex 改走后台。原来前台等它做完，$.process.run 最多等 10 分钟，大活必被掐断（用户：「为什么会十分钟是强制停掉的？」）。
+      // 官方插件 task --background 立刻返回任务编号、Codex 在后台一直做，没有时间上限；主 AI 用 Bash 后台等结果。
+      if (script) {
+        const cwd = await $.session.cwd()
+        const bg = await $.process.run(['node', script, 'task', '--background', '--json', ...argv.slice(3)], { cwd, timeoutMs: 120000 })
+        const id = /"jobId"\s*:\s*"([^"]+)"/.exec(bg.stdout || '')?.[1]
+        if (bg.exitCode !== 0 || !id) return { result: L('Codex 没能在后台开工（退出码 ' + bg.exitCode + '）。这件活自己做。', 'Codex could not start in the background (exit code ' + bg.exitCode + '). Handle this task yourself.') + '\n' + (bg.stdout || '').slice(-3000) + '\n' + (bg.stderr || '').slice(-2000) }
+        await codexSort($, ['task', '--name', input.goal], false)
+        $.ui.toast(L('Codex 在后台开工了：' + input.goal.slice(0, 30), 'Codex started in the background: ' + input.goal.slice(0, 30)))
+        const q = (x: string) => '"' + x + '"'
+        // 11-04 实测：官方插件按文件夹记任务，换个文件夹查会查不到，所以两条命令都带上 --cwd
+        return { result: L(
+          `Codex 已在后台开工，任务编号 ${id}，没有时间上限。跟用户说一声；然后用 Bash 或 PowerShell 后台（run_in_background）等它做完：
+node ${q(script)} status ${id} --cwd ${q(cwd)} --wait --timeout-ms 7200000 --poll-interval-ms 30000 --json
+做完后取报告：node ${q(script)} result ${id} --cwd ${q(cwd)}
+报告拿回来先检查，再告诉用户。`,
+          `Codex started in the background as ${id}, with no time limit. Tell the user, then wait with Bash or PowerShell run_in_background:
+node ${q(script)} status ${id} --cwd ${q(cwd)} --wait --timeout-ms 7200000 --poll-interval-ms 30000 --json
+Then fetch the report: node ${q(script)} result ${id} --cwd ${q(cwd)}
+Review it before telling the user.`) }
+      }
+      const r = await runCLI($, ai.executable, argv, 590000)
       const out = (r.stdout || '').slice(-20000)
       if (r.exitCode !== 0) {
         $.ui.toast(L(mate.name + ' 做失败了（退出码 ' + r.exitCode + '）', mate.name + ' failed (exit code ' + r.exitCode + ')'))
