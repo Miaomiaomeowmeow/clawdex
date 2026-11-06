@@ -71,7 +71,7 @@ cd clawdex
 | `plugin/` | Claude Code 插件（额度、委派工具、每条消息的派活提醒、认号） |
 | `float/` | 桌面浮窗（Electron） |
 | `pages/` | 浮窗里显示的跑道、设置页、搬家清单；字体在 `pages/fonts/` |
-| `src/` | 页面模板、手绘形象、把形象嵌进 `pages/` 的生成脚本 |
+| `src/` | 页面模板、手绘风形象、把形象嵌进 `pages/` 的生成脚本 |
 | `skills/account-move/` | 搬家技能 |
 
 ## 联系我
@@ -83,7 +83,7 @@ cd clawdex
 
 ## 署名和许可
 
-作者 **Miaomiao**（[@Miaomiaomeowmeow](https://github.com/Miaomiaomeowmeow)），手绘形象全部原创。
+作者 **Miaomiao**（[@Miaomiaomeowmeow](https://github.com/Miaomiaomeowmeow)）。手绘风形象由作者指导 AI 生成。
 
 许可：[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)：可以分享、可以改，要署名；改了以后用同样的许可公开；不能商用。用克代同堂做了什么东西，很希望你告诉我。
 

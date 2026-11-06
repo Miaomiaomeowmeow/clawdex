@@ -71,7 +71,7 @@ Everything else (each feature, what each AI can do, first-time setup) is in **Ri
 | `plugin/` | The Claude Code plugin (quota, delegation tool, per-message reminder, account detection) |
 | `float/` | The floating window (Electron) |
 | `pages/` | The track, settings and move-list pages the window shows; font in `pages/fonts/` |
-| `src/` | Page templates, hand-drawn art and the build scripts that embed the art into `pages/` |
+| `src/` | Page templates, hand-drawn-style art and the build scripts that embed the art into `pages/` |
 | `skills/account-move/` | The account-move skill |
 
 ## Contact
@@ -83,7 +83,7 @@ Everything else (each feature, what each AI can do, first-time setup) is in **Ri
 
 ## Credits & license
 
-Made by **Miaomiao** ([@Miaomiaomeowmeow](https://github.com/Miaomiaomeowmeow)), including all hand-drawn characters.
+Made by **Miaomiao** ([@Miaomiaomeowmeow](https://github.com/Miaomiaomeowmeow)). The hand-drawn-style characters were generated with AI under her direction.
 
 Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/): you can share and remix it with credit, share your version under the same license, and not use it commercially. If you build something on Clawdex, I would love to hear about it.
 
