@@ -34,9 +34,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--h
 @keyframes roll { to { background-position-x: -200px, -200px, -200px; } }
 .scene.s0 { background: radial-gradient(circle, #fff 1px, transparent 1.6px) 0 0 / 15px 13px, radial-gradient(circle, #FFE9A8 1.2px, transparent 1.8px) 7px 8px / 23px 17px, #232A5C; animation-duration: 1.2s; }
 .scene.s1 { background: radial-gradient(ellipse 14px 7px, #fff 60%, transparent 66%) 0 9px / 50px 30px, radial-gradient(ellipse 10px 5px, #fff 60%, transparent 66%) 26px 20px / 50px 30px, linear-gradient(#A8D8F2, #DDF1FB); animation-duration: 2.4s; }
-.scene.s2 { background: linear-gradient(transparent 46%, rgba(255,255,255,.85) 46% 54%, transparent 54%), repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 2px, transparent 2px 40px), #D9735A; animation-duration: 4.5s; }
+.scene.s2 { background: linear-gradient(transparent 46%, rgba(255,255,255,.85) 46% 54%, transparent 54%), linear-gradient(90deg, rgba(255,255,255,.55) 0 2px, transparent 2px) 0 0 / 40px 100%, #D9735A; animation-duration: 4.5s; }
 .scene.s3 { background: radial-gradient(circle at 50% 130%, #D7AE66 45%, transparent 47%) 0 0 / 34px 30px, radial-gradient(circle, #C79A50 1px, transparent 1.6px) 5px 6px / 11px 9px, #EACB8E; animation-duration: 9s; }
-.scene.s4 { background: repeating-linear-gradient(45deg, #E59A86 0 8px, #F4C9BD 8px 16px), none, none; animation-duration: 16s; }
+.scene.s4 { background: linear-gradient(45deg, #E59A86 25%, #F4C9BD 25% 50%, #E59A86 50% 75%, #F4C9BD 75%) 0 0 / 24px 24px; animation-name: rollStripe; animation-duration: 15.36s; }   /* 11-06 修竖缝：条纹画在 24px 小砖上、移动距离是砖的整数倍，照 Bootstrap 进度条的做法；原来没定砖大小，整条跑道算一块砖，砖和砖接不上 */
+@keyframes rollStripe { to { background-position-x: -192px; } }
 .bar.flip .clip { transform: scaleY(0); }
 .bar { cursor: pointer; }
 /* 这周的跑道：分成 7 段，一天一段，从回满那天数起 */
